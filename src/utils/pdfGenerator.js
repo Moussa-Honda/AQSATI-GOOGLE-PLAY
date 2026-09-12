@@ -7,6 +7,7 @@ import { settingsService, installmentService, managerService } from '../services
 
 export const PDF_MODES = {
   GLOBAL_STATEMENT:    'GLOBAL_STATEMENT',
+  CUSTOMERS_SUMMARY:   'CUSTOMERS_SUMMARY',
   CONTRACT_STATEMENT:  'CONTRACT_STATEMENT',
   INSTALLMENT_RECEIPT: 'INSTALLMENT_RECEIPT',
   CUSTODY_STATEMENT:  'CUSTODY_STATEMENT',
@@ -209,6 +210,57 @@ const buildGlobalHTML = async (customer, contracts, s, managedBy = null) => {
     <tbody>${rows || '<tr><td colspan="4" style="padding:16px; color:#64748b;">لا توجد عقود</td></tr>'}</tbody></table>
     ${totalsHTML(grandTotal, grandPaid, grandRemain)}
      ${footerHTML(s)}`);
+};
+
+// ─── Mode 2: Customers Summary ────────────────────────────────────────────────
+const buildCustomersSummaryHTML = (customers, summaries, s, scopeName = null) => {
+  let grandTotal = 0;
+  let grandPaid = 0;
+  let grandRemain = 0;
+
+  const rows = customers.map((customer) => {
+    const summary = summaries?.[customer.id] || {};
+    const total = Number(summary.total_contracts || 0);
+    const paid = Number(summary.total_paid || 0);
+    const remain = Math.max(0, Number(summary.total_remaining ?? (total - paid - Number(summary.total_discounts || 0))));
+
+    grandTotal += total;
+    grandPaid += paid;
+    grandRemain += remain;
+
+    return `<tr>
+      <td style="font-weight:bold; color:#0f172a; text-align:right;">${escapeHTML(customer.name || 'عميل')}</td>
+      <td style="direction:ltr; color:#0f172a;">${escapeHTML(customer.phone || '—')}</td>
+      <td style="font-weight:bold; color:#0f172a;">${fmt(Math.round(total))} ر.س</td>
+      <td class="green" style="font-weight:bold;">${fmt(Math.round(paid))} ر.س</td>
+      <td class="${remain > 0 ? 'red' : 'green'}" style="font-weight:bold;">${fmt(Math.round(remain))} ر.س</td>
+    </tr>`;
+  }).join('');
+
+  return wrap(`
+    ${headerHTML('كشف شامل للعملاء', scopeName ? `الحساب: ${escapeHTML(scopeName)}` : 'جميع العملاء', s)}
+    <div class="info">
+      <div class="info-col">
+        <div class="lbl">نطاق التقرير</div><div class="val">${scopeName ? escapeHTML(scopeName) : 'العملاء الشخصيون'}</div>
+      </div>
+      <div class="info-col" style="text-align:left">
+        <div class="lbl">تاريخ التقرير</div><div class="val" style="direction:ltr; text-align:left;">${today()}</div>
+        <div class="lbl">عدد العملاء</div><div class="val">${customers.length}</div>
+      </div>
+    </div>
+    <div class="divider" style="margin-bottom:10px"></div>
+    <table>
+      <thead><tr>
+        <th style="text-align:right;">اسم العميل</th>
+        <th>رقم الجوال</th>
+        <th>إجمالي المبلغ</th>
+        <th>المبلغ المدفوع</th>
+        <th>المبلغ المتبقي</th>
+      </tr></thead>
+      <tbody>${rows || '<tr><td colspan="5" style="padding:16px; color:#64748b;">لا يوجد عملاء</td></tr>'}</tbody>
+    </table>
+    ${totalsHTML(grandTotal, grandPaid, grandRemain)}
+    ${footerHTML(s)}`);
 };
 
 // ─── Mode 2: Contract Detail ──────────────────────────────────────────────────
@@ -545,14 +597,14 @@ const saveAndShare = async (doc, fileName) => {
 // ─── Main dispatcher ──────────────────────────────────────────────────────────
 export const generatePDF = async (customer, mode, specificData = {}) => {
   try {
-    if (!customer) { alert('بيانات العميل غير متوفرة'); return false; }
+    if (!customer && mode !== PDF_MODES.CUSTOMERS_SUMMARY) { alert('بيانات العميل غير متوفرة'); return false; }
     const s    = await loadSettings();
     const date = today();
-    const safe = (customer.name || 'عميل').replace(/[^\w\u0600-\u06FF]/g, '_');
+    const safe = (customer?.name || specificData.scopeName || 'العملاء').replace(/[^\w\u0600-\u06FF]/g, '_');
     let html, fileName;
 
     let managedBy = null;
-    if (customer.manager_id) {
+    if (customer?.manager_id) {
       try {
         const manager = await managerService.getById(customer.manager_id);
         if (manager) managedBy = manager.name;
@@ -563,6 +615,11 @@ export const generatePDF = async (customer, mode, specificData = {}) => {
       const { contracts = [] } = specificData;
       html     = await buildGlobalHTML(customer, contracts, s, managedBy);
       fileName = `كشف_شامل_${safe}_${date}.pdf`;
+
+    } else if (mode === PDF_MODES.CUSTOMERS_SUMMARY) {
+      const { customers = [], summaries = {}, scopeName = null } = specificData;
+      html = buildCustomersSummaryHTML(customers, summaries, s, scopeName);
+      fileName = `كشف_العملاء_${safe}_${date}.pdf`;
 
     } else if (mode === PDF_MODES.CONTRACT_STATEMENT) {
       const { contract, installments } = specificData;
