@@ -11,6 +11,8 @@ const CustodyDetails = ({ custody, onBack, isReadOnly = false, onRenewalRequest 
   const [loading, setLoading] = useState(true);
   const [spent, setSpent] = useState(0);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [editingExpense, setEditingExpense] = useState(null);
+  const [operationFilter, setOperationFilter] = useState('all');
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [hijriEnabled, setHijriEnabled] = useState(false);
   const privacyMode = usePrivacyMode();
@@ -49,6 +51,12 @@ const CustodyDetails = ({ custody, onBack, isReadOnly = false, onRenewalRequest 
     }
   };
 
+  const handleEditExpense = (expense) => {
+    if (isReadOnly) return onRenewalRequest?.();
+    setShowExpenseModal(false);
+    setEditingExpense(expense);
+  };
+
   const handleExportPDF = async () => {
     setGeneratingPdf(true);
     try {
@@ -60,8 +68,15 @@ const CustodyDetails = ({ custody, onBack, isReadOnly = false, onRenewalRequest 
     }
   };
 
+  const receiptCount = expenses.filter((expense) => expense.entry_type === 'receipt').length;
+  const expenseCount = expenses.length - receiptCount;
+  const visibleExpenses = expenses.filter((expense) => {
+    if (operationFilter === 'receipt') return expense.entry_type === 'receipt';
+    if (operationFilter === 'expense') return expense.entry_type !== 'receipt';
+    return true;
+  });
   const remaining = custody.capital - spent;
-  const spentPercentage = (spent / custody.capital) * 100;
+  const spentPercentage = custody.capital > 0 ? (spent / custody.capital) * 100 : 0;
 
   if (loading) {
     return (
@@ -137,49 +152,131 @@ const CustodyDetails = ({ custody, onBack, isReadOnly = false, onRenewalRequest 
           </div>
         </div>
 
-        {/* Expenses List */}
-        <div className="px-4 pb-20 space-y-3">
+        {/* Operations List */}
+        <div className="space-y-3 px-4 pb-20">
           <div className="flex items-center justify-between py-2">
-            <h3 className="text-white font-bold">سجل المصروفات</h3>
-            <span className="text-slate-500 text-xs">{expenses.length} عملية</span>
+            <h3 className="font-bold text-white">سجل العمليات</h3>
+            <span className="text-xs text-slate-500">{visibleExpenses.length} عملية</span>
           </div>
 
-          {expenses.length === 0 ? (
-            <div className="py-12 text-center bg-slate-800/30 rounded-3xl border border-dashed border-slate-700">
-              <p className="text-slate-500 text-sm">لا توجد مصروفات مسجلة لهذه العهدة</p>
+          <div className="grid grid-cols-3 gap-2 rounded-2xl border border-slate-700/60 bg-slate-800/40 p-1">
+            {[
+              { id: 'all', label: 'الكل', count: expenses.length },
+              { id: 'expense', label: 'المصروفات', count: expenseCount },
+              { id: 'receipt', label: 'سندات القبض', count: receiptCount }
+            ].map((filter) => (
+              <button
+                key={filter.id}
+                type="button"
+                onClick={() => setOperationFilter(filter.id)}
+                className={`rounded-xl px-2 py-2 text-xs font-bold transition-colors ${
+                  operationFilter === filter.id
+                    ? 'bg-slate-700 text-white shadow-sm'
+                    : 'text-slate-500 hover:bg-slate-700/50 hover:text-slate-300'
+                }`}
+              >
+                {filter.label}
+                <span className="mr-1 text-[10px] opacity-70">({filter.count})</span>
+              </button>
+            ))}
+          </div>
+
+          {visibleExpenses.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-slate-700 bg-slate-800/30 py-12 text-center">
+              <p className="text-sm text-slate-500">
+                {operationFilter === 'receipt'
+                  ? 'لا توجد سندات قبض مسجلة لهذه العهدة'
+                  : operationFilter === 'expense'
+                    ? 'لا توجد مصروفات مسجلة لهذه العهدة'
+                    : 'لا توجد عمليات مسجلة لهذه العهدة'}
+              </p>
             </div>
           ) : (
-            expenses.map((exp) => (
-              <div key={exp.id} className="bg-slate-800/50 rounded-2xl p-4 border border-slate-700/50 flex items-center justify-between group">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-rose-500/10 rounded-xl flex items-center justify-center text-rose-400">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h4 className="text-white font-bold text-sm">{exp.description || 'مصروف عام'}</h4>
-                    <div className="text-slate-500 text-[10px]">
-                      {exp.date}
-                      {hijriEnabled && (
-                        <span className="block text-slate-600">{toHijriDate(exp.date)}</span>
-                      )}
+            visibleExpenses.map((exp) => {
+              const isReceipt = exp.entry_type === 'receipt';
+
+              return (
+                <div
+                  key={exp.id}
+                  className={`flex items-start justify-between gap-3 rounded-2xl border p-4 ${
+                    isReceipt
+                      ? 'border-emerald-500/20 bg-emerald-500/5'
+                      : 'border-slate-700/50 bg-slate-800/50'
+                  }`}
+                >
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <div
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                        isReceipt ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+                      }`}
+                    >
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d={isReceipt
+                            ? 'M12 8v8m-4-4h8m8 0a9 9 0 11-18 0 9 9 0 0118 0z'
+                            : 'M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z'}
+                        />
+                      </svg>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 flex flex-wrap items-center gap-2">
+                        <h4 className="line-clamp-2 break-words text-sm font-bold text-white">
+                          {exp.description || (isReceipt ? 'سند قبض' : 'مصروف عام')}
+                        </h4>
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            isReceipt ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+                          }`}
+                        >
+                          {isReceipt ? 'سند قبض' : 'مصروف'}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        {exp.date}
+                        {hijriEnabled && (
+                          <span className="block text-slate-600">{toHijriDate(exp.date)}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
+
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <span className={`font-bold ${isReceipt ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {isReceipt ? '+' : '-'}{formatPrivateAmount(exp.amount, privacyMode)}
+                    </span>
+                    {!isReceipt && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleEditExpense(exp)}
+                          className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-blue-500/10 hover:text-blue-400"
+                          aria-label="تعديل المصروف"
+                          title="تعديل المصروف"
+                        >
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteExpense(exp.id)}
+                          className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+                          aria-label="حذف المصروف"
+                          title="حذف المصروف"
+                        >
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-4">
-                   <span className="text-rose-400 font-bold">{formatPrivateAmount(exp.amount, privacyMode)}</span>
-                  <button 
-                    onClick={() => handleDeleteExpense(exp.id)}
-                    className="p-2 text-slate-600 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
@@ -199,12 +296,18 @@ const CustodyDetails = ({ custody, onBack, isReadOnly = false, onRenewalRequest 
         </button>
       </div>
 
-      {showExpenseModal && (
+      {(showExpenseModal || editingExpense) && (
         <CustodyExpenseModal
+          key={editingExpense?.id || 'new-expense'}
           portfolioId={custody.id}
-          onClose={() => setShowExpenseModal(false)}
+          expense={editingExpense}
+          onClose={() => {
+            setShowExpenseModal(false);
+            setEditingExpense(null);
+          }}
           onSaved={() => {
             setShowExpenseModal(false);
+            setEditingExpense(null);
             loadData();
           }}
         />
