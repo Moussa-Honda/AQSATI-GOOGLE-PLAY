@@ -1,13 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { portfolioExpenseService } from '../services/database';
 
-const CustodyExpenseModal = ({ portfolioId, onClose, onSaved }) => {
+const CustodyExpenseModal = ({ portfolioId, expense = null, onClose, onSaved }) => {
   const [formData, setFormData] = useState({
-    amount: '',
-    description: '',
-    date: new Date().toISOString().split('T')[0]
+    amount: expense?.amount?.toString() || '',
+    description: expense?.description || '',
+    date: expense?.date || new Date().toISOString().split('T')[0]
   });
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setFormData({
+      amount: expense?.amount?.toString() || '',
+      description: expense?.description || '',
+      date: expense?.date || new Date().toISOString().split('T')[0]
+    });
+  }, [expense]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -18,12 +26,18 @@ const CustodyExpenseModal = ({ portfolioId, onClose, onSaved }) => {
 
     setLoading(true);
     try {
-      await portfolioExpenseService.create({
+      const data = {
         portfolio_id: portfolioId,
         amount: parseFloat(formData.amount),
         description: formData.description,
         date: formData.date
-      });
+      };
+
+      if (expense) {
+        await portfolioExpenseService.update(expense.id, data);
+      } else {
+        await portfolioExpenseService.create(data);
+      }
       onSaved();
     } catch (err) {
       console.error('Failed to save expense:', err);
@@ -39,7 +53,7 @@ const CustodyExpenseModal = ({ portfolioId, onClose, onSaved }) => {
       
       <div className="relative w-full max-w-sm bg-slate-800 rounded-[2.5rem] border border-slate-700 shadow-2xl overflow-hidden">
         <div className="p-6 text-center border-b border-slate-700">
-          <h3 className="text-xl font-bold text-white">تسجيل مصروف جديد</h3>
+          <h3 className="text-xl font-bold text-white">{expense ? 'تعديل المصروف' : 'تسجيل مصروف جديد'}</h3>
           <p className="text-slate-400 text-xs mt-1">سيتم خصم المبلغ من رصيد العهدة</p>
         </div>
 
@@ -90,7 +104,7 @@ const CustodyExpenseModal = ({ portfolioId, onClose, onSaved }) => {
             disabled={loading}
             className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white font-bold py-5 rounded-2xl shadow-xl shadow-blue-500/20 transition-all active:scale-[0.98] disabled:opacity-50 text-lg"
           >
-            {loading ? 'جاري التسجيل...' : 'تأكيد العملية'}
+            {loading ? 'جاري الحفظ...' : (expense ? 'حفظ التعديل' : 'تأكيد العملية')}
           </button>
           
           <button
