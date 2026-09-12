@@ -1198,6 +1198,7 @@ export const contractService = {
       return map;
     }, {});
   },
+
   async getPostponedCustomerMap(customerIds = []) {
     const ids = [...new Set(customerIds.map(id => Number(id)).filter(Boolean))];
     if (ids.length === 0) return {};
@@ -1582,12 +1583,12 @@ export const installmentService = {
     notifyDataChanged({ scope: 'installments', action: 'undo-pay', id, contractId: installment.contract_id });
   },
 
-  async getUpcoming(days = 7) {
+  async getUpcoming(rangeDays = 7) {
     const database = await getDatabase();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayText = formatLocalDate(today);
-    const horizonText = formatLocalDate(addLocalDays(today, Math.max(0, parseInt(days, 10) || 7)));
+    const horizonText = formatLocalDate(addLocalDays(today, Math.max(0, parseInt(rangeDays, 10) || 7)));
     const sql = `
       SELECT i.*, c.title as contract_title, cu.name as customer_name, cu.phone as customer_phone, m.name as manager_name
       FROM installments i
@@ -1647,6 +1648,8 @@ export const installmentService = {
       WHERE i.status = 'pending'
       AND c.status = 'active'
        AND (cu.is_deleted IS NULL OR cu.is_deleted = 0)
+       AND (cu.manager_id IS NULL OR cu.manager_id = 0 OR cu.manager_id = '')
+       AND (cu.deleted_manager_id IS NULL OR cu.deleted_manager_id = 0)
        AND (m.id IS NULL OR m.is_deleted IS NULL OR m.is_deleted = 0)
        AND (cu.is_manually_flagged_as_overdue IS NULL OR cu.is_manually_flagged_as_overdue = 0)
       AND NOT EXISTS (
@@ -1980,6 +1983,22 @@ export const managerService = {
           AND (cu2.is_manually_flagged_as_overdue IS NULL OR cu2.is_manually_flagged_as_overdue = 0)
           AND (cu2.is_deleted IS NULL OR cu2.is_deleted = 0)
         ) as total_paid
+        ,(
+          SELECT COUNT(DISTINCT cu3.id)
+          FROM customers cu3
+          WHERE cu3.manager_id = m.id
+          AND cu3.status != 'archived'
+          AND (cu3.is_deleted IS NULL OR cu3.is_deleted = 0)
+        ) as customer_count
+        ,(
+          SELECT COUNT(*)
+          FROM contracts c3
+          JOIN customers cu4 ON c3.customer_id = cu4.id
+          WHERE cu4.manager_id = m.id
+          AND c3.status = 'active'
+          AND cu4.status != 'archived'
+          AND (cu4.is_deleted IS NULL OR cu4.is_deleted = 0)
+        ) as active_contract_count
       FROM managers m
       WHERE ${managerStateFilter}
       ORDER BY m.created_at DESC
@@ -1993,7 +2012,9 @@ export const managerService = {
         ...m,
         total_contracts: contracts,
         total_paid: paid,
-        total_remaining: Math.max(0, contracts - paid)
+        total_remaining: Math.max(0, contracts - paid),
+        customer_count: Number(m.customer_count) || 0,
+        active_contract_count: Number(m.active_contract_count) || 0
       };
     });
   },
@@ -2066,10 +2087,26 @@ export const managerService = {
             AND cu.status != 'archived'
             AND (
               cu.is_manually_flagged_as_overdue = 1
-              OR (i.status = 'pending' AND i.due_date < ?)
+               OR (i.status = 'pending' AND i.due_date < ?)
             )
             AND (cu.is_deleted IS NULL OR cu.is_deleted = 0)
+          ) as overdue_customer_count,
+          (
+            SELECT COUNT(DISTINCT cu0.id)
+            FROM customers cu0
+            WHERE cu0.manager_id = m.id
+            AND cu0.status != 'archived'
+            AND (cu0.is_deleted IS NULL OR cu0.is_deleted = 0)
           ) as customer_count,
+          (
+            SELECT COUNT(*)
+            FROM contracts c0
+            JOIN customers cu0 ON c0.customer_id = cu0.id
+            WHERE cu0.manager_id = m.id
+            AND c0.status = 'active'
+            AND cu0.status != 'archived'
+            AND (cu0.is_deleted IS NULL OR cu0.is_deleted = 0)
+          ) as active_contract_count,
           (
             SELECT COALESCE(SUM(c.total_amount), 0)
             FROM contracts c
@@ -2082,7 +2119,7 @@ export const managerService = {
               WHERE i.contract_id = c.id 
               AND (
                 cu.is_manually_flagged_as_overdue = 1
-                OR (i.status = 'pending' AND i.due_date < ?)
+                 OR (i.status = 'pending' AND i.due_date < ?)
               )
             )
             AND (cu.is_deleted IS NULL OR cu.is_deleted = 0)
@@ -2100,7 +2137,7 @@ export const managerService = {
               WHERE i2.contract_id = c.id
               AND (
                 cu.is_manually_flagged_as_overdue = 1
-                OR (i2.status = 'pending' AND i2.due_date < ?)
+                 OR (i2.status = 'pending' AND i2.due_date < ?)
               )
             )
             AND (cu.is_deleted IS NULL OR cu.is_deleted = 0)
@@ -2116,7 +2153,7 @@ export const managerService = {
           AND cu.status != 'archived'
           AND (
             cu.is_manually_flagged_as_overdue = 1
-            OR (i.status = 'pending' AND i.due_date < ?)
+             OR (i.status = 'pending' AND i.due_date < ?)
           )
           AND (cu.is_deleted IS NULL OR cu.is_deleted = 0)
         ) > 0
