@@ -487,12 +487,18 @@ const createTables = async () => {
       amount REAL NOT NULL,
       description TEXT,
       date DATE DEFAULT CURRENT_DATE,
+      entry_type TEXT NOT NULL DEFAULT 'expense',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE
     );
   `;
   
   await db.execute(schema);
+
+  // Existing installations do not have the operation type column yet.
+  try {
+    await db.execute(`ALTER TABLE portfolio_expenses ADD COLUMN entry_type TEXT NOT NULL DEFAULT 'expense'`);
+  } catch {}
 
   try {
     await db.run(`UPDATE settings SET value = ? WHERE key = 'whatsapp_template' AND value = ?`, [
@@ -1968,7 +1974,7 @@ export const portfolioService = {
     notifyDataChanged({ scope: 'portfolios', action: 'update', id });
   },
 
-  async addCapital(id, amount) {
+  async addCapital(id, amount, receipt = {}) {
     const value = roundCurrency(amount);
     if (value <= 0) return;
 
@@ -1977,7 +1983,13 @@ export const portfolioService = {
       `UPDATE portfolios SET capital = COALESCE(capital, 0) + ? WHERE id = ?`,
       [value, id]
     );
-    notifyDataChanged({ scope: 'portfolios', action: 'add-capital', id, amount: value });
+    const receiptResult = await database.run(
+      `INSERT INTO portfolio_expenses (portfolio_id, amount, description, date, entry_type)
+       VALUES (?, ?, ?, ?, 'receipt')`,
+      [id, value, receipt.description || 'سند قبض - إضافة مبلغ', receipt.date || new Date().toISOString().split('T')[0]]
+    );
+    const receiptId = receiptResult.changes?.lastId || receiptResult.lastId;
+    notifyDataChanged({ scope: 'portfolios', action: 'add-capital', id, amount: value, receiptId });
   },
 
   async delete(id) {
@@ -1991,12 +2003,13 @@ export const portfolioService = {
 export const portfolioExpenseService = {
   async create(expense) {
     const database = await getDatabase();
-    const sql = `INSERT INTO portfolio_expenses (portfolio_id, amount, description, date) VALUES (?, ?, ?, ?)`;
+    const sql = `INSERT INTO portfolio_expenses (portfolio_id, amount, description, date, entry_type) VALUES (?, ?, ?, ?, ?)`;
     const result = await database.run(sql, [
       expense.portfolio_id, 
       expense.amount, 
       expense.description || null, 
-      expense.date || new Date().toISOString().split('T')[0]
+      expense.date || new Date().toISOString().split('T')[0],
+      expense.entry_type || 'expense'
     ]);
     const id = result.changes?.lastId || result.lastId;
     notifyDataChanged({ scope: 'portfolio_expenses', action: 'create', id, portfolioId: expense.portfolio_id });
@@ -2015,9 +2028,28 @@ export const portfolioExpenseService = {
     notifyDataChanged({ scope: 'portfolio_expenses', action: 'delete', id });
   },
 
+  async update(id, expense) {
+    const database = await getDatabase();
+    const value = roundCurrency(expense.amount);
+    if (value <= 0) throw new Error('Expense amount must be greater than zero');
+
+    await database.run(
+      `UPDATE portfolio_expenses
+       SET amount = ?, description = ?, date = ?
+       WHERE id = ? AND COALESCE(entry_type, 'expense') = 'expense'`,
+      [value, expense.description || null, expense.date || new Date().toISOString().split('T')[0], id]
+    );
+    notifyDataChanged({ scope: 'portfolio_expenses', action: 'update', id });
+  },
+
   async getStats(portfolioId) {
     const database = await getDatabase();
-    const result = await database.query(`SELECT SUM(amount) as total FROM portfolio_expenses WHERE portfolio_id = ?`, [portfolioId]);
+    const result = await database.query(
+      `SELECT SUM(amount) as total
+       FROM portfolio_expenses
+       WHERE portfolio_id = ? AND COALESCE(entry_type, 'expense') = 'expense'`,
+      [portfolioId]
+    );
     return result.values?.[0]?.total || 0;
   }
 };
