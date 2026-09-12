@@ -430,14 +430,16 @@ const buildReceiptHTML = (customer, installment, contract, s, managedBy = null) 
 
 // ─── Mode 4: Custody Statement ──────────────────────────────────────────────
 const buildCustodyHTML = (custody, expenses, s) => {
-  const totalSpent = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  const totalSpent = expenses
+    .filter((expense) => expense.entry_type !== 'receipt')
+    .reduce((sum, expense) => sum + (expense.amount || 0), 0);
   const remaining = (custody.capital || 0) - totalSpent;
 
   const rows = expenses.map((exp) => `
     <tr>
       <td style="font-family:Arial,sans-serif; direction:ltr; color:#0f172a;">${fmtDate(exp.date)}</td>
-      <td style="color:#0f172a;">${exp.description || '—'}</td>
-      <td class="red" style="font-weight:bold;">${fmt(exp.amount)} ر.س</td>
+      <td style="color:#0f172a;">${exp.entry_type === 'receipt' ? 'سند قبض: ' : ''}${exp.description || '—'}</td>
+      <td class="${exp.entry_type === 'receipt' ? 'green' : 'red'}" style="font-weight:bold;">${exp.entry_type === 'receipt' ? '+' : '-'}${fmt(exp.amount)} ر.س</td>
     </tr>
   `).join('');
 
@@ -463,7 +465,7 @@ const buildCustodyHTML = (custody, expenses, s) => {
       </div>
     </div>
 
-    <div style="padding:0 24px 8px; font-weight:bold; font-size:12px; color:#0f172a">سجل المصروفات بالتفصيل:</div>
+     <div style="padding:0 24px 8px; font-weight:bold; font-size:12px; color:#0f172a">سجل العمليات بالتفصيل:</div>
     <table>
       <thead>
         <tr>
