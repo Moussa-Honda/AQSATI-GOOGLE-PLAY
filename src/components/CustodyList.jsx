@@ -94,9 +94,9 @@ const CustodyList = ({ onSelectCustody, isReadOnly, onRenewalRequest }) => {
               onClick={() => onSelectCustody(item)}
               className="bg-[#0f172a] border border-slate-800 rounded-2xl p-4 card-hover cursor-pointer flex flex-col gap-4"
             >
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex items-start justify-between gap-4">
                 {/* Actions */}
-                <div className="flex items-center gap-3" onClick={e => e.stopPropagation()}>
+                <div className="flex shrink-0 items-start gap-3" onClick={e => e.stopPropagation()}>
                   <div className="flex flex-col items-center gap-1">
                     <button
                       onClick={(e) => {
@@ -142,14 +142,24 @@ const CustodyList = ({ onSelectCustody, isReadOnly, onRenewalRequest }) => {
                 </div>
 
                 {/* Name & Icon */}
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex flex-col items-end min-w-0">
-                    <h3 className="text-lg font-bold text-white truncate">{item.name}</h3>
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <div className="min-w-0 flex-1 text-right">
+                    <h3
+                      className="line-clamp-2 break-words text-lg font-bold leading-tight text-white"
+                      title={item.name}
+                    >
+                      {item.name}
+                    </h3>
                     {item.description && (
-                      <p className="text-slate-500 text-xs truncate max-w-[150px]">{item.description}</p>
+                      <p
+                        className="mt-1 line-clamp-1 break-words text-xs leading-5 text-slate-500"
+                        title={item.description}
+                      >
+                        {item.description}
+                      </p>
                     )}
                   </div>
-                  <div className="w-12 h-12 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-xl shadow-lg">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-blue-500/20 bg-blue-500/10 text-xl shadow-lg">
                     🏦
                   </div>
                 </div>
