@@ -1146,6 +1146,73 @@ export const contractService = {
     return summaries;
   },
 
+  async getCustomerReportSummaries(customerIds = []) {
+    const ids = [...new Set(customerIds.map(id => Number(id)).filter(Boolean))];
+    if (ids.length === 0) return {};
+
+    const database = await getDatabase();
+    const placeholders = ids.map(() => '?').join(',');
+    const summaries = {};
+
+    ids.forEach(id => {
+      summaries[id] = {
+        total_contracts: 0,
+        total_discounts: 0,
+        total_paid: 0,
+        total_remaining: 0
+      };
+    });
+
+    const contractResult = await database.query(
+      `
+        SELECT
+          customer_id,
+          COALESCE(SUM(total_amount), 0) as total_contracts,
+          COALESCE(SUM(COALESCE(discount_amount, 0)), 0) as total_discounts
+        FROM contracts
+        WHERE customer_id IN (${placeholders})
+        GROUP BY customer_id
+      `,
+      ids
+    );
+
+    for (const row of contractResult.values || []) {
+      const id = Number(row.customer_id);
+      summaries[id] = {
+        ...summaries[id],
+        total_contracts: Number(row.total_contracts || 0),
+        total_discounts: Number(row.total_discounts || 0)
+      };
+    }
+
+    const paidResult = await database.query(
+      `
+        SELECT
+          c.customer_id,
+          COALESCE(SUM(${paidAmountSql('i')}), 0) as total_paid
+        FROM contracts c
+        JOIN installments i ON i.contract_id = c.id
+        WHERE c.customer_id IN (${placeholders})
+        GROUP BY c.customer_id
+      `,
+      ids
+    );
+
+    for (const row of paidResult.values || []) {
+      const id = Number(row.customer_id);
+      summaries[id].total_paid = Number(row.total_paid || 0);
+    }
+
+    Object.values(summaries).forEach(summary => {
+      summary.total_remaining = Math.max(
+        0,
+        roundCurrency(summary.total_contracts - summary.total_paid - summary.total_discounts)
+      );
+    });
+
+    return summaries;
+  },
+
   async getOverdueCustomerMap(customerIds = [], overdueThreshold = 30) {
     const ids = [...new Set(customerIds.map(id => Number(id)).filter(Boolean))];
     if (ids.length === 0) return {};
