@@ -197,6 +197,21 @@ const ManagerList = ({ onSelectManager, onBack, filterType = 'all', isReadOnly =
                   </button>
                 </div>
 
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div className="bg-indigo-500/10 rounded-2xl p-3 border border-indigo-500/20">
+                    <p className="text-[10px] text-slate-500 font-bold mb-1">عدد العملاء</p>
+                    <p className="text-sm font-black text-indigo-300">
+                      {Number(manager.customer_count || 0).toLocaleString('en-US')}
+                    </p>
+                  </div>
+                  <div className="bg-cyan-500/10 rounded-2xl p-3 border border-cyan-500/20">
+                    <p className="text-[10px] text-slate-500 font-bold mb-1">العقود السارية</p>
+                    <p className="text-sm font-black text-cyan-300">
+                      {Number(manager.active_contract_count || 0).toLocaleString('en-US')}
+                    </p>
+                  </div>
+                </div>
+
                 {/* Financial Stats Grid */}
                 <div className="grid grid-cols-3 gap-3">
                   <div className="bg-slate-900/50 rounded-2xl p-3 border border-slate-700/30">
