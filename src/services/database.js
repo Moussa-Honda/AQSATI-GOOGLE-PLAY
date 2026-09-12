@@ -860,7 +860,7 @@ export const contractService = {
         (SELECT COALESCE(SUM(${paidAmountSql()}), 0) FROM installments WHERE contract_id = c.id) as total_paid
       FROM contracts c
       WHERE c.customer_id = ?
-      ORDER BY c.creation_date DESC
+      ORDER BY CASE WHEN c.status = 'active' THEN 0 ELSE 1 END, c.creation_date DESC
     `;
     const result = await database.query(sql, [customerId]);
     return result.values || [];
