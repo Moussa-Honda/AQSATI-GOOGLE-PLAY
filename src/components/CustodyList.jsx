@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { portfolioService, portfolioExpenseService } from '../services/database';
 import CustodyModal from './CustodyModal';
+import CustodyAddFundsModal from './CustodyAddFundsModal';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import { formatPrivateAmount, usePrivacyMode } from '../hooks/usePrivacyMode';
 
@@ -10,6 +11,7 @@ const CustodyList = ({ onSelectCustody, isReadOnly, onRenewalRequest }) => {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingCustody, setEditingCustody] = useState(null);
+  const [addingFundsTo, setAddingFundsTo] = useState(null);
   const privacyMode = usePrivacyMode();
 
   useEffect(() => {
@@ -97,6 +99,21 @@ const CustodyList = ({ onSelectCustody, isReadOnly, onRenewalRequest }) => {
                 <div className="flex items-center gap-3" onClick={e => e.stopPropagation()}>
                   <div className="flex flex-col items-center gap-1">
                     <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isReadOnly) return onRenewalRequest?.();
+                        setAddingFundsTo(item);
+                      }}
+                      className="w-10 h-10 bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded-xl flex items-center justify-center hover:bg-blue-500/20 transition-colors"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14m-7-7h14" />
+                      </svg>
+                    </button>
+                    <span className="text-[10px] text-slate-500 font-bold">إضافة مبلغ</span>
+                  </div>
+                  <div className="flex flex-col items-center gap-1">
+                    <button
                       onClick={(e) => handleDelete(e, item.id)}
                       className="w-10 h-10 bg-rose-500/5 border border-rose-500/30 text-rose-500 rounded-xl flex items-center justify-center hover:bg-rose-500/10 transition-colors"
                     >
@@ -179,6 +196,17 @@ const CustodyList = ({ onSelectCustody, isReadOnly, onRenewalRequest }) => {
           onClose={() => setShowModal(false)}
           onSaved={() => {
             setShowModal(false);
+            loadCustodies();
+          }}
+        />
+      )}
+
+      {addingFundsTo && (
+        <CustodyAddFundsModal
+          custody={addingFundsTo}
+          onClose={() => setAddingFundsTo(null)}
+          onSaved={() => {
+            setAddingFundsTo(null);
             loadCustodies();
           }}
         />
