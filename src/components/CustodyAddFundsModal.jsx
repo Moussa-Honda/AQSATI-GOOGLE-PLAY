@@ -4,6 +4,7 @@ import { formatPrivateAmount, usePrivacyMode } from '../hooks/usePrivacyMode';
 
 const CustodyAddFundsModal = ({ custody, onClose, onSaved }) => {
   const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [loading, setLoading] = useState(false);
   const privacyMode = usePrivacyMode();
 
@@ -18,7 +19,7 @@ const CustodyAddFundsModal = ({ custody, onClose, onSaved }) => {
 
     setLoading(true);
     try {
-      await portfolioService.addCapital(custody.id, value);
+      await portfolioService.addCapital(custody.id, value, { date });
       onSaved();
     } catch (error) {
       console.error('Failed to add custody funds:', error);
@@ -64,6 +65,17 @@ const CustodyAddFundsModal = ({ custody, onClose, onSaved }) => {
               className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 focus:outline-none transition-colors"
               placeholder="مثال: 3000"
               autoFocus
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-400 mb-1.5">تاريخ الاستلام</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(event) => setDate(event.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 focus:outline-none transition-colors"
               required
             />
           </div>
