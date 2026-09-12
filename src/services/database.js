@@ -1901,6 +1901,18 @@ export const portfolioService = {
     notifyDataChanged({ scope: 'portfolios', action: 'update', id });
   },
 
+  async addCapital(id, amount) {
+    const value = roundCurrency(amount);
+    if (value <= 0) return;
+
+    const database = await getDatabase();
+    await database.run(
+      `UPDATE portfolios SET capital = COALESCE(capital, 0) + ? WHERE id = ?`,
+      [value, id]
+    );
+    notifyDataChanged({ scope: 'portfolios', action: 'add-capital', id, amount: value });
+  },
+
   async delete(id) {
     const database = await getDatabase();
     await database.run(`DELETE FROM portfolios WHERE id = ?`, [id]);
