@@ -4,6 +4,7 @@ import CustomerModal from './CustomerModal';
 import ContractModal from './ContractModal';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import { formatPrivateAmount, usePrivacyMode } from '../hooks/usePrivacyMode';
+import { generatePDF, PDF_MODES } from '../utils/pdfGenerator';
 
 // Sanitize customer name - remove trailing 00 and whitespace
 const sanitizeName = (name) => {
@@ -61,6 +62,8 @@ const CustomerList = ({
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [customerBalances, setCustomerBalances] = useState({});
+  const [customerReportSummaries, setCustomerReportSummaries] = useState({});
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [overdueStatus, setOverdueStatus] = useState({});
   const [lateStatus, setLateStatus] = useState({});
   const [postponedStatus, setPostponedStatus] = useState({});
@@ -88,8 +91,9 @@ const CustomerList = ({
       const customerIds = data.map(customer => customer.id);
       const threshold = parseInt(overdueThresholdSetting, 10) || 30;
 
-      const [balanceSummaries, overdueMap, lateMap, monthStatusMap, postponedMap] = await Promise.all([
+      const [balanceSummaries, reportSummaries, overdueMap, lateMap, monthStatusMap, postponedMap] = await Promise.all([
         contractService.getCustomerBalanceSummaries(customerIds),
+        contractService.getCustomerReportSummaries(customerIds),
         contractService.getOverdueCustomerMap(customerIds, threshold),
         contractService.getLateCustomerMap(customerIds),
         customerService.getCurrentMonthStatusMap(customerIds),
@@ -131,6 +135,7 @@ const CustomerList = ({
       }
 
       setCustomerBalances(balances);
+      setCustomerReportSummaries(reportSummaries || {});
       setOverdueStatus(isOverdueMap);
       setLateStatus(lateMap || {});
       setPostponedStatus(postponedMap || {});
@@ -179,6 +184,22 @@ const CustomerList = ({
     if (isReadOnly) return onRenewalRequest?.();
     setSelectedCustomer(null);
     setShowModal(true);
+  };
+
+  const handleExportCustomersPDF = async () => {
+    if (pdfLoading) return;
+
+    setPdfLoading(true);
+    try {
+      const reportCustomers = customers.filter(customer => customer.is_deleted !== 1);
+      await generatePDF(null, PDF_MODES.CUSTOMERS_SUMMARY, {
+        customers: reportCustomers,
+        summaries: customerReportSummaries,
+        scopeName: managerName
+      });
+    } finally {
+      setPdfLoading(false);
+    }
   };
 
   const handleEditCustomer = (customer, e) => {
@@ -302,6 +323,20 @@ const CustomerList = ({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
             <span className="hidden sm:inline">عميل</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleExportCustomersPDF}
+            disabled={pdfLoading || loading}
+            className={`${managerId ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/25' : 'bg-blue-500/15 border-blue-500/40 text-blue-300 hover:bg-blue-500/25'} border px-3 py-3 rounded-xl font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50`}
+            title="طباعة كشف شامل للعملاء"
+          >
+            {pdfLoading ? (
+              <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <span className="text-sm">PDF</span>
+            )}
+            <span className="hidden sm:inline text-xs">كشف العملاء</span>
           </button>
         </div>
 
