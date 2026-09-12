@@ -329,7 +329,7 @@ const CustomerList = ({
             onClick={handleExportCustomersPDF}
             disabled={pdfLoading || loading}
             className={`${managerId ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/25' : 'bg-blue-500/15 border-blue-500/40 text-blue-300 hover:bg-blue-500/25'} border px-3 py-3 rounded-xl font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50`}
-            title="طباعة كشف شامل للعملاء"
+            title="طباعة PDF شامل لكل العملاء"
           >
             {pdfLoading ? (
               <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
