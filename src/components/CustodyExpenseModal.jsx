@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { portfolioExpenseService } from '../services/database';
 
 const CustodyExpenseModal = ({ portfolioId, expense = null, onClose, onSaved }) => {
+  const isReceipt = expense?.entry_type === 'receipt';
   const [formData, setFormData] = useState({
     amount: expense?.amount?.toString() || '',
-    description: expense?.description || '',
+    description: expense?.description || (isReceipt ? 'سند قبض - إضافة مبلغ' : ''),
     date: expense?.date || new Date().toISOString().split('T')[0]
   });
   const [loading, setLoading] = useState(false);
@@ -12,7 +13,7 @@ const CustodyExpenseModal = ({ portfolioId, expense = null, onClose, onSaved }) 
   useEffect(() => {
     setFormData({
       amount: expense?.amount?.toString() || '',
-      description: expense?.description || '',
+      description: expense?.description || (expense?.entry_type === 'receipt' ? 'سند قبض - إضافة مبلغ' : ''),
       date: expense?.date || new Date().toISOString().split('T')[0]
     });
   }, [expense]);
@@ -30,7 +31,8 @@ const CustodyExpenseModal = ({ portfolioId, expense = null, onClose, onSaved }) 
         portfolio_id: portfolioId,
         amount: parseFloat(formData.amount),
         description: formData.description,
-        date: formData.date
+        date: formData.date,
+        entry_type: isReceipt ? 'receipt' : 'expense'
       };
 
       if (expense) {
@@ -53,8 +55,12 @@ const CustodyExpenseModal = ({ portfolioId, expense = null, onClose, onSaved }) 
       
       <div className="relative w-full max-w-sm bg-slate-800 rounded-[2.5rem] border border-slate-700 shadow-2xl overflow-hidden">
         <div className="p-6 text-center border-b border-slate-700">
-          <h3 className="text-xl font-bold text-white">{expense ? 'تعديل المصروف' : 'تسجيل مصروف جديد'}</h3>
-          <p className="text-slate-400 text-xs mt-1">سيتم خصم المبلغ من رصيد العهدة</p>
+          <h3 className="text-xl font-bold text-white">
+            {expense ? (isReceipt ? 'تعديل سند القبض' : 'تعديل المصروف') : 'تسجيل مصروف جديد'}
+          </h3>
+          <p className="text-slate-400 text-xs mt-1">
+            {isReceipt ? 'سيتم تعديل المبلغ المسلم للعهدة' : 'سيتم خصم المبلغ من رصيد العهدة'}
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="p-8 space-y-6">
@@ -63,14 +69,18 @@ const CustodyExpenseModal = ({ portfolioId, expense = null, onClose, onSaved }) 
             <div className="relative inline-block w-full">
               <input
                 type="number"
+                min="0.01"
+                step="0.01"
                 value={formData.amount}
                 onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                className="w-full bg-transparent text-4xl font-black text-center text-rose-500 placeholder-rose-500/20 focus:outline-none"
+                className={`w-full bg-transparent text-4xl font-black text-center focus:outline-none ${
+                  isReceipt ? 'text-emerald-500 placeholder-emerald-500/20' : 'text-rose-500 placeholder-rose-500/20'
+                }`}
                 placeholder="0.00"
                 autoFocus
                 required
               />
-              <span className="text-rose-500/50 font-bold ml-2">SAR</span>
+              <span className={`font-bold ml-2 ${isReceipt ? 'text-emerald-500/50' : 'text-rose-500/50'}`}>SAR</span>
             </div>
           </div>
 
@@ -82,13 +92,15 @@ const CustodyExpenseModal = ({ portfolioId, expense = null, onClose, onSaved }) 
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 className="w-full bg-slate-900 border border-slate-700 rounded-2xl px-4 py-4 text-white focus:border-blue-500 focus:outline-none transition-colors shadow-inner"
-                placeholder="مثال: شراء قرطاسية"
+                placeholder={isReceipt ? 'مثال: استلام مبلغ إضافي' : 'مثال: شراء قرطاسية'}
                 required
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1.5">تاريخ الصرف</label>
+              <label className="block text-sm font-medium text-slate-400 mb-1.5">
+                {isReceipt ? 'تاريخ الاستلام' : 'تاريخ الصرف'}
+              </label>
               <input
                 type="date"
                 value={formData.date}
