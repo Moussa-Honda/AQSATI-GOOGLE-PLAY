@@ -279,7 +279,7 @@ const createVapidAuthorization = async (env, endpoint) => {
   const payload = encodeJson({
     aud: audience,
     exp: Math.floor(Date.now() / 1000) + (12 * 60 * 60),
-    sub: env.VAPID_SUBJECT || 'mailto:notifications@example.com',
+    sub: env.VAPID_SUBJECT || 'https://fazatak.pages.dev',
   });
   const signed = utf8(`${header}.${payload}`);
   const signature = await crypto.subtle.sign(
