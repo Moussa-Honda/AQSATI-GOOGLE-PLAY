@@ -17,17 +17,28 @@ const getSupabaseConfig = (env) => ({
 
 const supabaseRequest = async (env, path, init = {}) => {
   const { url, key } = getSupabaseConfig(env);
-  const headers = new Headers(init.headers || {});
-  headers.set('apikey', key);
-  headers.set('Authorization', `Bearer ${key}`);
-  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  const keys = [...new Set([key, DEFAULT_SUPABASE_KEY].filter(Boolean))];
 
-  const response = await fetch(`${url}/rest/v1/${path}`, { ...init, headers });
-  if (!response.ok) {
+  for (const requestKey of keys) {
+    const headers = new Headers(init.headers || {});
+    headers.set('apikey', requestKey);
+    headers.set('Authorization', `Bearer ${requestKey}`);
+    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+
+    const response = await fetch(`${url}/rest/v1/${path}`, { ...init, headers });
+    if (response.ok) {
+      if (response.status === 204) return null;
+      return response.json();
+    }
+
+    // A stale Cloudflare Supabase key should not prevent Push registration.
+    if ((response.status === 401 || response.status === 403) && requestKey !== DEFAULT_SUPABASE_KEY) {
+      continue;
+    }
     throw new Error(`Supabase ${response.status}: ${await response.text()}`);
   }
-  if (response.status === 204) return null;
-  return response.json();
+
+  throw new Error('Supabase request failed');
 };
 
 const readJson = async (request) => {
