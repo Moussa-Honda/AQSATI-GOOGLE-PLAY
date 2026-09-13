@@ -6,6 +6,15 @@ import './index.css'
 import App from './App.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 
+const syncViewportHeight = () => {
+  const height = window.visualViewport?.height || window.innerHeight
+  document.documentElement.style.setProperty('--app-height', `${height}px`)
+}
+
+syncViewportHeight()
+window.addEventListener('resize', syncViewportHeight)
+window.visualViewport?.addEventListener('resize', syncViewportHeight)
+
 // Register jeep-sqlite web component for in-browser SQLite WebAssembly
 jeepSqlite(window)
 
