@@ -1,6 +1,6 @@
 -- =========================================================
--- فزعتك — اشتراكات Web Push لـ Safari PWA
--- نفّذ هذا الملف مرة واحدة في Supabase SQL Editor
+-- أقساطي — اشتراكات Web Push لـ Android PWA وSafari PWA
+-- نفّذ هذا الملف مرة واحدة في Supabase SQL Editor.
 -- =========================================================
 
 create table if not exists fazatak_push_subscriptions (

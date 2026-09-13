@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { installmentService, contractService } from '../services/database';
-import { notificationService } from '../services/notificationService';
 import { formatPrivateAmount, usePrivacyMode } from '../hooks/usePrivacyMode';
 
 // Helper function to round numbers
@@ -93,7 +92,6 @@ const PaymentModal = ({ isOpen, onClose, onSave, installment, themeColor = 'blue
         null,
         discount
       );
-      notificationService.refreshSchedule().catch(error => console.error('Notification refresh error:', error));
 
       await onSave?.();
       onClose();

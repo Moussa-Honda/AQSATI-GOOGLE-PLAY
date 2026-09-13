@@ -6,7 +6,7 @@ import { authService } from './services/authService';
 import { cloudSyncService } from './services/cloudSyncService';
 import licenseService from './services/license';
 import { settingsService } from './services/database';
-import { notificationService } from './services/notificationService';
+import { dueAlertsService } from './services/dueAlertsService';
 import { Capacitor } from '@capacitor/core';
 import { PrivacyScreen } from '@capacitor-community/privacy-screen';
 import './index.css';
@@ -83,8 +83,9 @@ function App() {
   useEffect(() => {
     if (!isLicensed) return;
 
-    notificationService.refreshSchedule().catch((error) => {
-      console.error('Notification schedule init error:', error);
+    // تنبيه العملاء المتأخرين / المستحقين اليوم عند فتح التطبيق
+    dueAlertsService.runAutoCheck().catch((error) => {
+      console.warn('Due alerts init note:', error);
     });
 
     // فحص مزامنة التحديثات في الخلفية عند فتح التطبيق

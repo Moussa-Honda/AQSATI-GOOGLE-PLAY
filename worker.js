@@ -1,7 +1,6 @@
 const DEFAULT_SUPABASE_URL = 'https://ehufhgulrubgnntmdhxn.supabase.co';
 const DEFAULT_SUPABASE_KEY = 'sb_publishable_5O9wP_WCo3zqIkNzI_8Cpg_hYFM9NGC';
 const PUSH_TABLE = 'fazatak_push_subscriptions';
-const NOTIFICATION_WINDOW_MINUTES = 15;
 
 const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -58,9 +57,7 @@ const subscriptionRecord = (payload) => ({
 const handlePushApi = async (request, env) => {
   const url = new URL(request.url);
 
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204 });
-  }
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204 });
 
   if (url.pathname === '/api/push/config' && request.method === 'GET') {
     if (!env.VAPID_PUBLIC_KEY) return jsonResponse({ error: 'push_not_configured' }, 503);
@@ -104,8 +101,8 @@ const handlePushApi = async (request, env) => {
     if (!record) return jsonResponse({ error: 'subscription_not_found' }, 404);
 
     const result = await sendWebPush(env, record.subscription, {
-      title: 'اختبار تنبيهات الأقساط',
-      body: 'تم تفعيل إشعارات الأقساط بنجاح',
+      title: 'تجربة تنبيهات أقساطي',
+      body: 'تم تفعيل Push على هذا الجهاز بنجاح ✅',
       tag: 'fazatak-test',
       data: { url: '/' },
     });
@@ -225,7 +222,7 @@ const createVapidAuthorization = async (env, endpoint) => {
   const payload = encodeJson({
     aud: audience,
     exp: Math.floor(Date.now() / 1000) + (12 * 60 * 60),
-    sub: env.VAPID_SUBJECT || 'mailto:inquisitivestation92@mail.bu.app',
+    sub: env.VAPID_SUBJECT || 'mailto:notifications@example.com',
   });
   const signed = utf8(`${header}.${payload}`);
   const signature = await crypto.subtle.sign(
@@ -323,28 +320,20 @@ const dateNumber = (dateText) => {
   return Date.UTC(year, month - 1, day);
 };
 
-const getSettingsMap = (rows = []) => Object.fromEntries(
-  rows.map((row) => [row.key, row.value])
-);
+const getSettingsMap = (rows = []) => Object.fromEntries(rows.map((row) => [row.key, row.value]));
 
 const getDueCandidate = (backupPayload, now, timezone) => {
   const tables = backupPayload?.tables || {};
   const settings = getSettingsMap(tables.settings || []);
-  if (settings.installment_notifications_enabled !== 'true') return null;
+  if (settings.due_alerts_enabled !== 'true') return null;
 
   const localNow = getLocalDateParts(now, timezone);
   const todayNumber = dateNumber(`${localNow.year}-${localNow.month}-${localNow.day}`);
-  const daysBefore = Math.max(0, Number.parseInt(settings.installment_notification_days_before || '1', 10) || 0);
-  const overdueEnabled = settings.installment_overdue_notifications_enabled !== 'false';
-  const overdueThreshold = Math.max(0, Number.parseInt(settings.overdue_threshold_days || '30', 10) || 30);
-  const configuredTime = String(settings.installment_notification_time || '09:00').split(':').map(Number);
-  const configuredMinutes = (configuredTime[0] || 9) * 60 + (configuredTime[1] || 0);
-  const currentMinutes = Number(localNow.hour) * 60 + Number(localNow.minute);
-  if (Math.floor(currentMinutes / NOTIFICATION_WINDOW_MINUTES) !== Math.floor(configuredMinutes / NOTIFICATION_WINDOW_MINUTES)) return null;
+  if (todayNumber === null) return null;
 
   const customers = new Map((tables.customers || []).map((row) => [row.id, row]));
   const contracts = new Map((tables.contracts || []).map((row) => [row.id, row]));
-  const candidates = [];
+  const groups = new Map();
 
   for (const installment of tables.installments || []) {
     if (installment.status !== 'pending') continue;
@@ -352,50 +341,50 @@ const getDueCandidate = (backupPayload, now, timezone) => {
     const customer = contract ? customers.get(contract.customer_id) : null;
     if (!contract || contract.status !== 'active' || !customer) continue;
     if (customer.status && customer.status !== 'active') continue;
-    if (customer.is_deleted || customer.is_manually_flagged_as_overdue) continue;
-    if (customer.manager_id && Number(customer.manager_id) !== 0) continue;
-    if (customer.deleted_manager_id && Number(customer.deleted_manager_id) !== 0) continue;
+    if (customer.is_deleted || customer.deleted_at) continue;
 
     const dueNumber = dateNumber(installment.due_date);
-    if (dueNumber === null) continue;
-    const daysUntil = Math.round((dueNumber - todayNumber) / 86400000);
-    let kind = null;
-    let title = '';
-    if (daysUntil > 0 && daysUntil <= daysBefore) {
-      kind = 'upcoming';
-      title = 'اقترب موعد القسط';
-    } else if (daysUntil === 0) {
-      kind = 'today';
-      title = 'قسط مستحق اليوم';
-    } else if (daysUntil < 0 && overdueEnabled && Math.abs(daysUntil) <= overdueThreshold) {
-      kind = 'overdue';
-      title = 'قسط متأخر';
-    }
-    if (!kind) continue;
-
-    candidates.push({ installment, customer, kind, title, daysUntil, dueNumber });
+    if (dueNumber === null || dueNumber > todayNumber) continue;
+    const bucket = dueNumber < todayNumber ? 'late' : 'today';
+    const key = `${customer.id}:${bucket}`;
+    const existing = groups.get(key) || {
+      customerId: customer.id,
+      customerName: customer.name || 'عميل',
+      bucket,
+      count: 0,
+      amount: 0,
+      firstDueDate: installment.due_date,
+      daysLate: Math.max(0, Math.round((todayNumber - dueNumber) / 86400000)),
+    };
+    existing.count += 1;
+    existing.amount += Math.max(0, Number(installment.amount || 0) - Number(installment.actual_paid || 0));
+    if (String(installment.due_date) < String(existing.firstDueDate)) existing.firstDueDate = installment.due_date;
+    existing.daysLate = Math.max(existing.daysLate, Math.max(0, Math.round((todayNumber - dueNumber) / 86400000)));
+    groups.set(key, existing);
   }
 
-  candidates.sort((left, right) => left.dueNumber - right.dueNumber || Number(left.installment.id) - Number(right.installment.id));
-  const candidate = candidates[0];
-  if (!candidate) return null;
+  const entries = [...groups.values()].sort((left, right) => (
+    right.daysLate - left.daysLate || right.amount - left.amount || left.customerName.localeCompare(right.customerName)
+  ));
+  if (entries.length === 0) return null;
 
-  const amount = settings.privacy_mode === 'true'
-    ? '***'
-    : Math.max(0, Number(candidate.installment.amount || 0) - Number(candidate.installment.actual_paid || 0)).toLocaleString('en-US');
-  const customerName = candidate.customer.name || 'عميل';
-  const owner = candidate.customer.manager_id ? '' : '';
-  const body = candidate.kind === 'upcoming'
-    ? `باقي ${candidate.daysUntil} يوم على قسط ${customerName}${owner} بقيمة ${amount} ريال`
-    : candidate.kind === 'overdue'
-      ? `قسط متأخر منذ ${Math.abs(candidate.daysUntil)} يوم: ${customerName} - ${amount} ريال`
-      : `قسط مستحق اليوم: ${customerName} - ${amount} ريال`;
+  const late = entries.filter((entry) => entry.bucket === 'late');
+  const today = entries.filter((entry) => entry.bucket === 'today');
+  const totalAmount = entries.reduce((sum, entry) => sum + entry.amount, 0);
+  const names = entries.slice(0, 3).map((entry) => entry.customerName).join('، ');
+  const parts = [];
+  if (late.length) parts.push(`${late.length} عميل متأخر`);
+  if (today.length) parts.push(`${today.length} عميل مستحق اليوم`);
+  const dateKey = `${localNow.year}-${localNow.month}-${localNow.day}`;
+  const signature = entries.map((entry) => `${entry.customerId}:${entry.bucket}:${entry.count}:${Math.round(entry.amount)}`).join('|');
+  const title = late.length ? 'عملاء متأخرون عن السداد' : 'أقساط مستحقة اليوم';
+  const body = `${parts.join(' • ')} — الإجمالي ${Math.round(totalAmount).toLocaleString('en-US')} ريال${names ? `\n${names}` : ''}`;
 
   return {
-    key: `${candidate.installment.id}:${candidate.kind}:${localNow.year}-${localNow.month}-${localNow.day}`,
-    title: candidate.title,
+    key: `${dateKey}:${signature}`,
+    title,
     body,
-    tag: `installment-${candidate.installment.id}-${candidate.kind}`,
+    tag: `fazatak-due-alerts-${dateKey}`,
     data: { url: '/' },
   };
 };
@@ -448,4 +437,4 @@ export default {
   },
 };
 
-export { handlePushApi, runScheduledNotifications };
+export { handlePushApi, runScheduledNotifications, getDueCandidate };

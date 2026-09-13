@@ -25,16 +25,14 @@ const writeStoredSubscription = (subscription) => {
   try {
     localStorage.setItem(SUBSCRIPTION_STORAGE_KEY, JSON.stringify(subscription));
   } catch {
-    // The browser may block storage while still allowing push permission.
+    // The subscription remains valid even if storage is unavailable.
   }
 };
 
 const clearStoredSubscription = () => {
   try {
     localStorage.removeItem(SUBSCRIPTION_STORAGE_KEY);
-  } catch {
-    // Ignore storage cleanup failures.
-  }
+  } catch {}
 };
 
 const readStoredVapidKey = () => {
@@ -48,17 +46,13 @@ const readStoredVapidKey = () => {
 const writeStoredVapidKey = (key) => {
   try {
     localStorage.setItem(VAPID_KEY_STORAGE_KEY, key);
-  } catch {
-    // The subscription remains valid even if storage is unavailable.
-  }
+  } catch {}
 };
 
 const clearStoredVapidKey = () => {
   try {
     localStorage.removeItem(VAPID_KEY_STORAGE_KEY);
-  } catch {
-    // Ignore storage cleanup failures.
-  }
+  } catch {}
 };
 
 const toBase64Url = (value) => {
@@ -85,8 +79,8 @@ const getConfig = async () => {
   });
 
   if (!response.ok) {
-    const error = new Error('push_not_configured');
-    error.code = 'not_configured';
+    const error = new Error(response.status === 503 ? 'not_configured' : 'push_config_failed');
+    error.code = response.status === 503 ? 'not_configured' : 'push_config_failed';
     throw error;
   }
 
@@ -131,13 +125,13 @@ const saveSubscription = async (subscription) => {
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Riyadh',
       subscription: serialized,
     }),
-    });
+  });
 
-    if (!response.ok) {
-      const error = new Error('push_registration_failed');
-      error.code = response.status === 503 ? 'push_service_unavailable' : 'registration_failed';
-      throw error;
-    }
+  if (!response.ok) {
+    const error = new Error('push_registration_failed');
+    error.code = response.status === 503 ? 'push_service_unavailable' : 'registration_failed';
+    throw error;
+  }
 
   writeStoredSubscription(serialized);
   return serialized;
@@ -154,10 +148,7 @@ export const webPushService = {
 
   async ensureSubscription({ requestPermission = false } = {}) {
     if (!isSupported()) return { granted: false, reason: 'unsupported' };
-
-    if (Notification.permission === 'denied') {
-      return { granted: false, reason: 'denied' };
-    }
+    if (Notification.permission === 'denied') return { granted: false, reason: 'denied' };
 
     if (Notification.permission !== 'granted') {
       if (!requestPermission) return { granted: false, reason: 'default' };
@@ -171,8 +162,7 @@ export const webPushService = {
       let subscription = await registration.pushManager.getSubscription();
 
       // Recreate subscriptions issued with an older VAPID key.
-      const savedVapidKey = readStoredVapidKey();
-      if (subscription && savedVapidKey !== config.vapidPublicKey) {
+      if (subscription && readStoredVapidKey() !== config.vapidPublicKey) {
         await subscription.unsubscribe();
         clearStoredSubscription();
         subscription = null;

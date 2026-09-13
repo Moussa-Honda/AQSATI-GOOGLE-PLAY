@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { contractService } from '../services/database';
-import { notificationService } from '../services/notificationService';
 import { formatPrivateAmount, usePrivacyMode } from '../hooks/usePrivacyMode';
 
 const EarlySettlementModal = ({ isOpen, onClose, onSave, contract, themeColor = 'blue' }) => {
@@ -55,7 +54,6 @@ const EarlySettlementModal = ({ isOpen, onClose, onSave, contract, themeColor = 
     try {
       await contractService.applyEarlySettlement(contract.id, discount);
       settlementSuccess = true;
-      notificationService.refreshSchedule().catch(error => console.error('Notification refresh error:', error));
       
       // Close modal first before calling onSave to prevent UI race conditions
       onClose();

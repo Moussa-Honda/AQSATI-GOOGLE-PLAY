@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { settingsService } from '../services/database';
-import { notificationService } from '../services/notificationService';
+import { dueAlertsService } from '../services/dueAlertsService';
 import licenseService from '../services/license';
 import { PrivacyScreen } from '@capacitor-community/privacy-screen';
 import { Clipboard } from '@capacitor/clipboard';
@@ -189,11 +189,8 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
   const [showMotivationalTicker, setShowMotivationalTicker] = useState(true);
   const [overdueThreshold, setOverdueThreshold] = useState(30);
   const [stagnancyThreshold, setStagnancyThreshold] = useState(90);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  const [notificationDaysBefore, setNotificationDaysBefore] = useState(1);
-  const [notificationTime, setNotificationTime] = useState('09:00');
-  const [overdueNotificationsEnabled, setOverdueNotificationsEnabled] = useState(true);
-  const [notificationStatus, setNotificationStatus] = useState('');
+  const [dueAlertsEnabled, setDueAlertsEnabled] = useState(false);
+  const [dueAlertsStatus, setDueAlertsStatus] = useState('');
   const [whatsappTemplate, setWhatsappTemplate] = useState('');
   const [updatingSetting, setUpdatingSetting] = useState(null);
 
@@ -221,7 +218,7 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
       const [
         quick, privacy, screenPrivacyValue,
         bizName, bizContact, taxNo, showPdf, stampEnabled, stampImage, stampText, signatureEnabled, signatureImage, signatureText, overThreshold, stagThreshold,
-        notifEnabled, notifDays, notifTime, notifOverdue, whatsappText,
+        dueAlerts, whatsappText,
          showCustody, showTicker
       ] = await Promise.all([
         settingsService.get('quick_payment_mode'),
@@ -239,10 +236,7 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
         settingsService.get('pdf_signature_text'),
         settingsService.get('overdue_threshold_days'),
         settingsService.get('stagnancy_threshold_days'),
-        settingsService.get('installment_notifications_enabled'),
-        settingsService.get('installment_notification_days_before'),
-        settingsService.get('installment_notification_time'),
-        settingsService.get('installment_overdue_notifications_enabled'),
+        settingsService.get('due_alerts_enabled'),
         settingsService.getWhatsAppTemplate(),
          settingsService.get('show_custody_section'),
          settingsService.get('show_motivational_ticker')
@@ -265,10 +259,7 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
       setPdfSignatureText(signatureText || '');
       setOverdueThreshold(parseInt(overThreshold) || 30);
       setStagnancyThreshold(parseInt(stagThreshold) || 90);
-      setNotificationsEnabled(notifEnabled === 'true');
-      setNotificationDaysBefore(parseInt(notifDays) || 1);
-      setNotificationTime(notifTime || '09:00');
-      setOverdueNotificationsEnabled(notifOverdue !== 'false');
+      setDueAlertsEnabled(dueAlerts === 'true' && ['granted', 'unknown'].includes(dueAlertsService.getPermission()));
       setWhatsappTemplate(whatsappText || '');
     } catch (error) {
       console.error('Error loading settings:', error);
@@ -445,74 +436,39 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
     }
   };
 
-  const handleNotificationToggle = async () => {
+  const handleDueAlertsToggle = async () => {
     if (updatingSetting) return;
 
-    const settingKey = 'installment_notifications_enabled';
-    setUpdatingSetting(settingKey);
+    setUpdatingSetting('due_alerts_enabled');
+    setDueAlertsStatus('');
     try {
-      setNotificationStatus('جاري تحديث التنبيهات...');
-      const result = await notificationService.setEnabled(!notificationsEnabled);
-      setNotificationsEnabled(result.enabled);
+      const result = await dueAlertsService.setEnabled(!dueAlertsEnabled);
+      setDueAlertsEnabled(result.enabled);
 
-      if (result.permission === 'unsupported') {
-        setNotificationStatus('تنبيهات Safari تتطلب تثبيت التطبيق على الشاشة الرئيسية واستخدام iOS 16.4 أو أحدث.');
-      } else if (result.permission === 'not_configured') {
-        setNotificationStatus('لم يتم إعداد خادم إشعارات Safari بعد.');
-      } else if (result.permission === 'not_authenticated') {
-        setNotificationStatus('يرجى تسجيل الدخول قبل تفعيل تنبيهات الجهاز.');
-      } else if (result.permission === 'denied') {
-        setNotificationStatus('تم رفض إشعارات أقساطي من النظام. افتح إعدادات الإشعارات للموقع في Chrome أو إعدادات إشعارات التطبيق في iPhone، اختر السماح، ثم عُد واضغط الزر مرة أخرى. لا يستطيع الموقع إظهار نافذة السماح تلقائياً بعد الرفض.');
-      } else if (result.permission === 'registration_failed' || result.permission === 'push_service_unavailable') {
-        setNotificationStatus('تعذر تسجيل هذا الجهاز في خدمة الإشعارات. تحقق من اتصال الإنترنت ثم حاول مرة أخرى.');
-      } else if (!result.enabled && notificationsEnabled) {
-        setNotificationStatus('تم إيقاف تنبيهات الأقساط');
-      } else if (!result.enabled) {
-        setNotificationStatus('لم تُحسم صلاحية الإشعارات بعد. اضغط الزر مرة أخرى واسمح بها من نافذة النظام.');
+      if (result.enabled) {
+        setDueAlertsStatus('تم التفعيل. سيصلك Push بالعملاء المتأخرين والمستحقين اليوم حتى مع إغلاق التطبيق.');
+        const test = await dueAlertsService.sendTest();
+        if (!test.sent) {
+          setDueAlertsStatus(`تم التسجيل، لكن تعذر إرسال إشعار الاختبار: ${test.reason || 'unknown'}`);
+        }
+      } else if (result.reason === 'ios_not_installed') {
+        setDueAlertsStatus('على الآيفون: من سفاري اختر «مشاركة» ثم «إضافة إلى الشاشة الرئيسية»، وافتح التطبيق من الأيقونة ثم فعّل التنبيهات (iOS 16.4 أو أحدث).');
+      } else if (result.reason === 'denied') {
+        setDueAlertsStatus('التنبيهات مرفوضة من إعدادات الجهاز. افتح إعدادات الإشعارات للتطبيق واختر السماح ثم أعد المحاولة.');
+      } else if (result.reason === 'unsupported') {
+        setDueAlertsStatus('هذا المتصفح لا يدعم تنبيهات النظام، لكن زر الجرس داخل التطبيق يعمل بشكل طبيعي.');
+      } else if (result.reason === 'off') {
+        setDueAlertsStatus('تم إيقاف تنبيهات الجهاز.');
       } else {
-        setNotificationStatus(`تم تفعيل التنبيهات وجدولة ${result.scheduled || 0} إشعار`);
+        setDueAlertsStatus('لم يتم منح صلاحية التنبيهات. اضغط الزر مرة أخرى واسمح بها من نافذة النظام.');
       }
 
       onSettingsChange?.();
     } catch (error) {
-      console.error('Notification toggle error:', error);
-      setNotificationStatus('تعذر تحديث التنبيهات');
+      console.error('Due alerts toggle error:', error);
+      setDueAlertsStatus('تعذر تحديث التنبيهات.');
     } finally {
       setUpdatingSetting(null);
-    }
-  };
-
-  const updateNotificationSetting = async (key, value, setter) => {
-    try {
-      setter(value);
-      setNotificationStatus('جاري تحديث جدول التنبيهات...');
-      const result = await notificationService.updateSetting(key, value);
-      setNotificationStatus(notificationsEnabled ? `تم تحديث الجدولة: ${result.scheduled || 0} إشعار` : '');
-      onSettingsChange?.();
-    } catch (error) {
-      console.error('Notification setting error:', error);
-      setNotificationStatus('تعذر تحديث إعدادات التنبيهات');
-    }
-  };
-
-  const handleTestNotification = async () => {
-    try {
-      setNotificationStatus('سيظهر إشعار اختباري بعد ثوانٍ');
-      const result = await notificationService.sendTestNotification();
-      if (!result.sent) {
-        if (result.permission === 'unsupported') {
-          setNotificationStatus('تنبيهات Safari تتطلب تثبيت التطبيق على الشاشة الرئيسية واستخدام iOS 16.4 أو أحدث.');
-        } else if (result.permission === 'not_configured') {
-          setNotificationStatus('لم يتم إعداد خادم إشعارات Safari بعد.');
-        } else if (result.permission === 'denied') {
-          setNotificationStatus('تم رفض إشعارات أقساطي من النظام. افتح إعدادات الإشعارات للموقع أو التطبيق، اختر السماح، ثم عُد وأرسل الإشعار الاختباري مرة أخرى.');
-        } else {
-          setNotificationStatus('تعذر إرسال الإشعار الاختباري');
-        }
-      }
-    } catch (error) {
-      console.error('Test notification error:', error);
-      setNotificationStatus('تعذر إرسال إشعار اختباري');
     }
   };
 
@@ -1008,68 +964,23 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
         </div>
 
         <div className="pt-4 border-t border-slate-700/50 mt-4 space-y-4">
-          <h4 className="text-sm font-bold text-slate-400">تنبيهات الأقساط خارج التطبيق</h4>
+          <h4 className="text-sm font-bold text-slate-400">تنبيهات العملاء المتأخرين والمستحقين اليوم</h4>
           <ToggleItem
             title="تنبيهات الجهاز"
-            description="إظهار تنبيه حتى لو كان التطبيق مغلقاً"
-            value={notificationsEnabled}
-            onToggle={handleNotificationToggle}
-            disabled={updatingSetting === 'installment_notifications_enabled'}
+            description="تنبيه بأسماء العملاء المتأخرين أو المستحقين اليوم عند فتح التطبيق"
+            value={dueAlertsEnabled}
+            onToggle={handleDueAlertsToggle}
+            disabled={updatingSetting === 'due_alerts_enabled'}
             icon="🔔"
           />
 
-          {notificationsEnabled && (
-            <div className="space-y-4 bg-slate-900/50 rounded-xl p-4 border border-slate-700/60">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-white text-sm">التنبيه قبل الاستحقاق</p>
-                <input
-                  type="number"
-                  min="0"
-                  max="30"
-                  value={notificationDaysBefore}
-                  onChange={(e) => {
-                    const val = Math.max(0, parseInt(e.target.value, 10) || 0);
-                    updateNotificationSetting('installment_notification_days_before', val, setNotificationDaysBefore);
-                  }}
-                  className="w-20 bg-slate-950 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-center outline-none focus:border-blue-500 transition-colors"
-                />
-              </div>
+          <p className="text-[11px] text-slate-500 leading-5">
+            زر الجرس 🔔 في أعلى الشاشة الرئيسية يعرض قائمة العملاء المتأخرين والمستحقين اليوم مع مبالغهم وأزرار الواتساب.
+          </p>
 
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-white text-sm">وقت التنبيه اليومي</p>
-                <input
-                  type="time"
-                  value={notificationTime}
-                  onChange={(e) => updateNotificationSetting('installment_notification_time', e.target.value || '09:00', setNotificationTime)}
-                  className="w-32 bg-slate-950 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-center outline-none focus:border-blue-500 transition-colors"
-                />
-              </div>
-
-              <ToggleItem
-                title="تنبيهات المتأخرات الحديثة"
-                description="لا تشمل العملاء الظاهرين في قسم المتعثرين"
-                value={overdueNotificationsEnabled}
-                onToggle={() => updateNotificationSetting(
-                  'installment_overdue_notifications_enabled',
-                  !overdueNotificationsEnabled,
-                  setOverdueNotificationsEnabled
-                )}
-                icon="⏰"
-              />
-
-              <button
-                type="button"
-                onClick={handleTestNotification}
-                className="w-full bg-blue-600/20 border border-blue-500/40 text-blue-300 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-600/30 transition-colors"
-              >
-                إرسال إشعار اختباري
-              </button>
-            </div>
-          )}
-
-          {notificationStatus && (
+          {dueAlertsStatus && (
             <p className="text-xs text-slate-400 leading-5 bg-slate-900/70 border border-slate-700 rounded-xl p-3">
-              {notificationStatus}
+              {dueAlertsStatus}
             </p>
           )}
         </div>
@@ -1086,7 +997,6 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
                 const val = e.target.value;
                 setOverdueThreshold(val);
                 await settingsService.set('overdue_threshold_days', val.toString());
-                notificationService.refreshSchedule().catch(error => console.error('Notification refresh error:', error));
                 onSettingsChange?.();
               }}
               className="w-20 bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-center outline-none focus:border-blue-500 transition-colors"

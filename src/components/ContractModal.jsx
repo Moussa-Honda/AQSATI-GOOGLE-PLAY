@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { contractService, installmentService, customerService, settingsService } from '../services/database';
-import { notificationService } from '../services/notificationService';
 import { getDefaultDueDate } from '../utils/dateUtils';
 import { sanitizePhoneNumber } from '../utils/phoneUtils';
 import { isWebContactsSupported, isNativePlatform, pickContactDirectly } from '../services/contactService';
@@ -180,7 +179,6 @@ const ContractModal = ({ isOpen, onClose, onSave, customerId, customerName, isBl
             }
           );
 
-          notificationService.refreshSchedule().catch(error => console.error('Notification refresh error:', error));
           onSave?.();
           onClose();
           return;
@@ -194,7 +192,6 @@ const ContractModal = ({ isOpen, onClose, onSave, customerId, customerName, isBl
           guarantor_phone: formData.guarantor_phone ? sanitizePhoneNumber(formData.guarantor_phone) : null
         });
 
-        notificationService.refreshSchedule().catch(error => console.error('Notification refresh error:', error));
         onSave?.();
         onClose();
         return;
@@ -270,7 +267,6 @@ const ContractModal = ({ isOpen, onClose, onSave, customerId, customerName, isBl
         }
       }
 
-      notificationService.refreshSchedule().catch(error => console.error('Notification refresh error:', error));
       onSave();
       onClose();
     } catch (error) {

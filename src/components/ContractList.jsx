@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import { contractService, installmentService, customerService, settingsService } from '../services/database';
-import { notificationService } from '../services/notificationService';
 import { toHijriDate } from '../utils/dateUtils';
 import ContractModal from './ContractModal';
 import PaymentModal from './PaymentModal';
@@ -288,7 +287,6 @@ const ContractList = ({ customerId, isReadOnly, onRenewalRequest, themeColor = '
     if (confirmed) {
       try {
         await installmentService.pay(installment.id, remaining, null, 0);
-        notificationService.refreshSchedule().catch(error => console.error('Notification refresh error:', error));
         await loadData();
         await refreshContractInstallments(contract.id);
       } catch (error) {
@@ -341,7 +339,6 @@ const ContractList = ({ customerId, isReadOnly, onRenewalRequest, themeColor = '
 
     try {
       await installmentService.postpone(selectedPostponeInstallment.id, mode);
-      notificationService.refreshSchedule().catch(error => console.error('Notification refresh error:', error));
       await refreshContractInstallments(contractId);
       await loadData();
       setShowPostponeModal(false);
@@ -363,7 +360,6 @@ const ContractList = ({ customerId, isReadOnly, onRenewalRequest, themeColor = '
     setUndoPostponeLoading(installment.id);
     try {
       await installmentService.undoPostpone(installment.id);
-      notificationService.refreshSchedule().catch(error => console.error('Notification refresh error:', error));
       await refreshContractInstallments(contract.id);
       await loadData();
     } catch (error) {
@@ -609,7 +605,6 @@ const ContractList = ({ customerId, isReadOnly, onRenewalRequest, themeColor = '
                         if (isReadOnly) return onRenewalRequest?.();
                         if (window.confirm(`⚠️ هل أنت متأكد من حذف عقد "${contract.title}"؟\n\nسيتم حذف العقد وجميع أقساطه نهائياً!`)) {
                           contractService.delete(contract.id).then(() => {
-                            notificationService.refreshSchedule().catch(error => console.error('Notification refresh error:', error));
                             loadData();
                             setInstallments(prev => {
                               const next = { ...prev };
@@ -749,7 +744,6 @@ const ContractList = ({ customerId, isReadOnly, onRenewalRequest, themeColor = '
                                     const confirmed = window.confirm('هل تريد إلغاء عملية السداد لهذا القسط وإعادته للحالة المعلقة؟');
                                     if (confirmed) {
                                       await installmentService.undoPay(inst.id);
-                                      notificationService.refreshSchedule().catch(error => console.error('Notification refresh error:', error));
                                       await loadData();
                                       await refreshContractInstallments(contract.id);
                                     }

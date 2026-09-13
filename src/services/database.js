@@ -468,10 +468,7 @@ const createTables = async () => {
       ('show_general_customers', 'true'),
       ('overdue_threshold_days', '30'),
       ('stagnancy_threshold_days', '90'),
-      ('installment_notifications_enabled', 'false'),
-      ('installment_notification_days_before', '1'),
-      ('installment_notification_time', '09:00'),
-      ('installment_overdue_notifications_enabled', 'true');
+      ('due_alerts_enabled', 'false');
 
     CREATE TABLE IF NOT EXISTS portfolios (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -509,6 +506,16 @@ const createTables = async () => {
 
   try {
     await db.run(`UPDATE installments SET actual_paid = amount WHERE status = 'paid' AND (actual_paid IS NULL OR actual_paid = 0)`);
+  } catch {}
+
+  // إزالة إعدادات نظام تنبيهات الجهاز القديم (تمت استبداله بتنبيهات المتأخر/المستحق اليوم)
+  try {
+    await db.execute(`DELETE FROM settings WHERE key IN (
+      'installment_notifications_enabled',
+      'installment_notification_days_before',
+      'installment_notification_time',
+      'installment_overdue_notifications_enabled'
+    )`);
   } catch {}
 
   // Ensure manager-related columns exist for existing users
@@ -1764,6 +1771,95 @@ export const installmentService = {
       ...alerts,
       total: rows.length
     };
+  },
+
+  // تنبيهات العملاء: كل عميل لديه قسط متأخر أو مستحق اليوم (مجمّع على مستوى العميل)
+  async getDueCustomerAlerts() {
+    const database = await getDatabase();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayText = formatLocalDate(today);
+    const overdueThreshold = parseInt(await settingsService.get('overdue_threshold_days'), 10) || 30;
+
+    const sql = `
+      SELECT
+        cu.id AS customer_id,
+        cu.name AS customer_name,
+        cu.phone AS customer_phone,
+        COALESCE(cu.is_manually_flagged_as_overdue, 0) AS is_flagged_debtor,
+        m.name AS manager_name,
+        CASE WHEN i.due_date < ? THEN 'late' ELSE 'today' END AS bucket,
+        COUNT(i.id) AS installments_count,
+        SUM(MAX(0, COALESCE(i.amount, 0) - COALESCE(i.actual_paid, 0))) AS due_amount,
+        MIN(i.due_date) AS first_due_date,
+        MAX(i.due_date) AS last_due_date,
+        MIN(i.id) AS first_installment_id
+      FROM installments i
+      JOIN contracts c ON i.contract_id = c.id
+      JOIN customers cu ON c.customer_id = cu.id
+      LEFT JOIN managers m ON cu.manager_id = m.id
+      WHERE i.status = 'pending'
+        AND c.status = 'active'
+        AND (cu.is_deleted IS NULL OR cu.is_deleted = 0)
+        AND (cu.status IS NULL OR cu.status = 'active')
+        AND (m.id IS NULL OR m.is_deleted IS NULL OR m.is_deleted = 0)
+        AND i.due_date <= ?
+      GROUP BY cu.id, bucket
+      ORDER BY first_due_date ASC, cu.name ASC
+    `;
+
+    const result = await database.query(sql, [todayText, todayText]);
+    const rows = result.values || [];
+
+    const alerts = {
+      late: [],
+      today: [],
+      lateAmount: 0,
+      todayAmount: 0,
+      totalAmount: 0,
+      generatedAt: Date.now(),
+      todayDate: todayText
+    };
+
+    rows.forEach((row) => {
+      const amount = Math.max(0, Number(row.due_amount || 0));
+      const daysLate = row.bucket === 'late'
+        ? Math.max(0, Math.round((today.getTime() - new Date(`${row.first_due_date}T00:00:00`).getTime()) / 86400000))
+        : 0;
+
+      const item = {
+        customer_id: row.customer_id,
+        customer_name: row.customer_name,
+        customer_phone: row.customer_phone,
+        manager_name: row.manager_name,
+        installments_count: Number(row.installments_count || 0),
+        due_amount: amount,
+        first_due_date: row.first_due_date,
+        last_due_date: row.last_due_date,
+        first_installment_id: row.first_installment_id,
+        days_late: daysLate,
+        is_flagged_debtor: Number(row.is_flagged_debtor || 0) === 1,
+        is_hard_debtor: daysLate > overdueThreshold || Number(row.is_flagged_debtor || 0) === 1,
+        bucket: row.bucket
+      };
+
+      if (row.bucket === 'late') {
+        alerts.late.push(item);
+        alerts.lateAmount += amount;
+      } else {
+        alerts.today.push(item);
+        alerts.todayAmount += amount;
+      }
+    });
+
+    alerts.late.sort((a, b) => b.days_late - a.days_late || b.due_amount - a.due_amount);
+    alerts.today.sort((a, b) => b.due_amount - a.due_amount);
+    alerts.totalAmount = alerts.lateAmount + alerts.todayAmount;
+    alerts.lateCount = alerts.late.length;
+    alerts.todayCount = alerts.today.length;
+    alerts.total = alerts.lateCount + alerts.todayCount;
+
+    return alerts;
   }
 };
 

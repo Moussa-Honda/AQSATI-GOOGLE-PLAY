@@ -3,7 +3,7 @@
 // استراتيجية: Cache First للـ assets + Offline fallback للـ navigation
 // ============================================================
 
-const CACHE_VERSION = 'v2.5.0';
+const CACHE_VERSION = 'v2.7.0';
 const CACHE_NAME = `fazatak-cache-${CACHE_VERSION}`;
 const OFFLINE_PAGE = '/index.html';
 
@@ -83,10 +83,10 @@ self.addEventListener('activate', (event) => {
 });
 
 // ─────────────────────────────────────────────
-// PUSH: إشعارات Safari PWA وChrome PWA
+// PUSH: استقبال إشعارات المتأخرين والمستحقين اليوم من Cloudflare
 // ─────────────────────────────────────────────
 self.addEventListener('push', (event) => {
-  let payload = {};
+  let payload;
   try {
     payload = event.data?.json() || {};
   } catch {
@@ -98,14 +98,17 @@ self.addEventListener('push', (event) => {
     body: payload.body || 'لديك تحديث جديد في أقساطي',
     icon: payload.icon || '/icons/aqasti-icon-192.png',
     badge: payload.badge || '/icons/icon-96.png',
-    tag: payload.tag || 'fazatak-notification',
+    tag: payload.tag || 'fazatak-due-alerts',
     renotify: Boolean(payload.renotify),
+    dir: 'rtl',
+    lang: 'ar',
     data: payload.data || { url: '/' },
   };
 
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
+// NOTIFICATION CLICK: فتح التطبيق عند الضغط على التنبيه
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const targetUrl = event.notification.data?.url || '/';

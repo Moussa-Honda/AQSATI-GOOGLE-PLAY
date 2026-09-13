@@ -11,7 +11,8 @@ import CustodyDetails from '../components/CustodyDetails';
 import ManagerList from '../components/ManagerList';
 import { generatePDFStatement } from '../utils/pdfGenerator';
 import { contractService, customerService, installmentService, settingsService } from '../services/database';
-import { notificationService } from '../services/notificationService';
+import { dueAlertsService } from '../services/dueAlertsService';
+import DueAlertsButton from '../components/DueAlertsButton';
 import { formatForWhatsApp } from '../utils/phoneUtils';
 import { notifyPageNavigated } from '../services/dataEvents';
 import { cloudSyncService } from '../services/cloudSyncService';
@@ -272,6 +273,8 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
   const [homeAlerts, setHomeAlerts] = useState({ late: [], today: [], upcoming: [], total: 0, totalAmount: 0 });
   const [homeAlertsLoading, setHomeAlertsLoading] = useState(true);
   const [selectedAlertType, setSelectedAlertType] = useState(null);
+  const [dueAlerts, setDueAlerts] = useState({ late: [], today: [], lateCount: 0, todayCount: 0, total: 0, totalAmount: 0 });
+  const [dueAlertsLoading, setDueAlertsLoading] = useState(true);
 
   const loadDashboardSettings = useCallback(async () => {
     try {
@@ -302,6 +305,20 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
     }
   }, []);
 
+  // تنبيهات العملاء المتأخرين / المستحقين اليوم (زر الجرس)
+  const loadDueAlerts = useCallback(async () => {
+    try {
+      const data = await dueAlertsService.getAlerts();
+      setDueAlerts(data);
+      return data;
+    } catch (error) {
+      console.error('Due alerts error:', error);
+      return null;
+    } finally {
+      setDueAlertsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadDashboardSettings();
   }, [loadDashboardSettings]);
@@ -310,17 +327,36 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
 
   useEffect(() => {
     loadHomeAlerts();
-    const interval = setInterval(loadHomeAlerts, 30000);
+    loadDueAlerts();
+    const interval = setInterval(() => {
+      loadHomeAlerts();
+      loadDueAlerts();
+    }, 30000);
     return () => clearInterval(interval);
-  }, [loadHomeAlerts]);
+  }, [loadHomeAlerts, loadDueAlerts]);
 
   useLiveRefresh(loadHomeAlerts);
+  useLiveRefresh(loadDueAlerts);
 
   useEffect(() => {
     if (activeTab === 'dashboard') {
       loadHomeAlerts();
+      loadDueAlerts();
     }
-  }, [activeTab, loadHomeAlerts]);
+  }, [activeTab, loadHomeAlerts, loadDueAlerts]);
+
+  // إعادة الفحص وإظهار التنبيه كلما رجع التطبيق للمقدمة
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      loadDueAlerts().then((data) => {
+        if (data) dueAlertsService.runAutoCheck().catch(() => {});
+      });
+    };
+
+    document.addEventListener('visibilitychange', handleVisible);
+    return () => document.removeEventListener('visibilitychange', handleVisible);
+  }, [loadDueAlerts]);
 
   // تحديث تلقائي وفوري للبيانات والإحصائيات كلما تنقل المستخدم بين التبويبات أو الصفحات
   useEffect(() => {
@@ -372,6 +408,28 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
     }
   };
 
+  const handleDueAlertWhatsApp = async (item) => {
+    const phone = formatForWhatsApp(item.customer_phone);
+    if (!phone) {
+      alert('لا يوجد رقم جوال لهذا العميل');
+      return;
+    }
+
+    try {
+      const template = await settingsService.getWhatsAppTemplate();
+      const message = template
+        .replace(/\[الاسم\]/g, item.customer_name || '')
+        .replace(/\[المبلغ\]/g, Math.round(item.due_amount || 0).toLocaleString('en-US'))
+        .replace(/\[التاريخ\]/g, item.first_due_date || '')
+        .replace(/\[العقد\]/g, '');
+
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+    } catch (error) {
+      console.error('Due alert WhatsApp error:', error);
+      alert('تعذر تجهيز رسالة واتساب');
+    }
+  };
+
   const handleAlertWhatsApp = async (item) => {
     const phone = formatForWhatsApp(item.customer_phone);
     if (!phone) {
@@ -405,8 +463,7 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
 
     try {
       await installmentService.pay(item.id, remaining, null, 0);
-      notificationService.refreshSchedule().catch(error => console.error('Notification refresh error:', error));
-      await loadHomeAlerts();
+      await Promise.all([loadHomeAlerts(), loadDueAlerts()]);
     } catch (error) {
       console.error('Alert payment error:', error);
       alert('حدث خطأ أثناء تسجيل الدفع');
@@ -487,6 +544,14 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
                 </div>
               </div>
               <MotivationalTicker enabled={showMotivationalTicker} startedAt={tickerStartedAt} />
+              <DueAlertsButton
+                alerts={dueAlerts}
+                loading={dueAlertsLoading}
+                privacyMode={privacyMode}
+                onOpenCustomer={handleOpenAlertCustomer}
+                onSendWhatsApp={handleDueAlertWhatsApp}
+                onRefresh={loadDueAlerts}
+              />
               {remainingText && (
                 <div className={`px-3 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1.5 border shadow-sm ${
                   isExpired ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
@@ -579,7 +644,6 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
                     if (isExpired) return setShowRenewal(true);
                     const newValue = !selectedCustomer.is_manually_flagged_as_overdue;
                     await customerService.update(selectedCustomer.id, { is_manually_flagged_as_overdue: newValue });
-                    notificationService.refreshSchedule().catch(error => console.error('Notification refresh error:', error));
                     setSelectedCustomer({ ...selectedCustomer, is_manually_flagged_as_overdue: newValue });
                   }}
                   className={`px-3 py-2 rounded-lg text-xs font-bold transition-all border ${
@@ -663,7 +727,6 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
                     if (isExpired) return setShowRenewal(true);
                     const newValue = !selectedCustomer.is_manually_flagged_as_overdue;
                     await customerService.update(selectedCustomer.id, { is_manually_flagged_as_overdue: newValue });
-                    notificationService.refreshSchedule().catch(error => console.error('Notification refresh error:', error));
                     setSelectedCustomer({ ...selectedCustomer, is_manually_flagged_as_overdue: newValue });
                   }}
                   className={`px-3 py-2 rounded-lg text-xs font-bold transition-all border ${
@@ -735,6 +798,7 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
           onRenewalRequest={() => setShowRenewal(true)} 
           onSettingsChange={() => {
             loadHomeAlerts();
+            loadDueAlerts();
             loadDashboardSettings();
           }}
           onLicenseRenewed={onReActivate}

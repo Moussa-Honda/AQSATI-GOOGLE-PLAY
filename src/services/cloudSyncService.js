@@ -12,12 +12,9 @@ let isSyncInProgress = false;
 let isImportingCloud = false;
 let autoSyncInitialized = false;
 
-// Notification permission and schedules belong to this device, not the cloud account.
+// Notification permission belongs to this device, not the cloud account.
 const DEVICE_NOTIFICATION_SETTING_KEYS = [
-  'installment_notifications_enabled',
-  'installment_notification_days_before',
-  'installment_notification_time',
-  'installment_overdue_notifications_enabled',
+  'due_alerts_enabled',
 ];
 
 const preserveDeviceNotificationSettings = async (cloudPayload) => {
