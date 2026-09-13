@@ -126,7 +126,7 @@ const handlePushApi = async (request, env) => {
     return jsonResponse(
       result.sent
         ? { ok: true }
-        : { ok: false, error: 'push_send_failed', providerStatus: result.status },
+        : { ok: false, error: 'push_send_failed', providerStatus: result.status, providerError: result.error },
       result.sent ? 200 : 502
     );
   }
