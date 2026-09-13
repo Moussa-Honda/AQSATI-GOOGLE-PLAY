@@ -123,7 +123,12 @@ const handlePushApi = async (request, env) => {
       data: { url: '/' },
     });
     if (result.expired) await deleteSubscription(env, record.endpoint);
-    return jsonResponse({ ok: result.sent }, result.sent ? 200 : 502);
+    return jsonResponse(
+      result.sent
+        ? { ok: true }
+        : { ok: false, error: 'push_send_failed', providerStatus: result.status },
+      result.sent ? 200 : 502
+    );
   }
 
   return jsonResponse({ error: 'not_found' }, 404);
@@ -303,10 +308,16 @@ const sendWebPush = async (env, subscription, payload) => {
       },
       body,
     });
-    return { sent: response.ok, expired: response.status === 404 || response.status === 410 };
+    const responseBody = response.ok ? '' : (await response.text()).slice(0, 240);
+    return {
+      sent: response.ok,
+      expired: response.status === 404 || response.status === 410,
+      status: response.status,
+      error: responseBody,
+    };
   } catch (error) {
     console.warn('[Push] Send failed:', error);
-    return { sent: false, expired: false };
+    return { sent: false, expired: false, status: null, error: error.message || 'send_failed' };
   }
 };
 
