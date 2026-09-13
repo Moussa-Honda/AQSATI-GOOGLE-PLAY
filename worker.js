@@ -77,6 +77,29 @@ const handlePushApi = async (request, env) => {
 
   if (url.pathname === '/api/push/config' && request.method === 'GET') {
     if (!env.VAPID_PUBLIC_KEY) return jsonResponse({ error: 'push_not_configured' }, 503);
+    if (url.searchParams.get('diag') === '1') {
+      try {
+        const { privateKey } = await getVapidKeys(env);
+        const data = utf8('fazatak-vapid-diagnostic');
+        const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, privateKey, data);
+        const publicKey = await crypto.subtle.importKey(
+          'raw',
+          base64UrlToBytes(env.VAPID_PUBLIC_KEY),
+          { name: 'ECDSA', namedCurve: 'P-256' },
+          false,
+          ['verify']
+        );
+        const valid = await crypto.subtle.verify(
+          { name: 'ECDSA', hash: 'SHA-256' },
+          publicKey,
+          signature,
+          data
+        );
+        return jsonResponse({ vapidPublicKey: env.VAPID_PUBLIC_KEY, vapidKeyPairValid: valid });
+      } catch (error) {
+        return jsonResponse({ error: 'vapid_diagnostic_failed', detail: error.message }, 500);
+      }
+    }
     return jsonResponse({ vapidPublicKey: env.VAPID_PUBLIC_KEY });
   }
 
