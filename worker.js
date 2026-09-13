@@ -89,13 +89,26 @@ const handlePushApi = async (request, env) => {
           false,
           ['verify']
         );
+        const normalizedSignature = normalizeEcdsaSignature(signature);
         const valid = await crypto.subtle.verify(
           { name: 'ECDSA', hash: 'SHA-256' },
           publicKey,
           signature,
           data
         );
-        return jsonResponse({ vapidPublicKey: env.VAPID_PUBLIC_KEY, vapidKeyPairValid: valid });
+        const normalizedValid = await crypto.subtle.verify(
+          { name: 'ECDSA', hash: 'SHA-256' },
+          publicKey,
+          normalizedSignature,
+          data
+        );
+        return jsonResponse({
+          vapidPublicKey: env.VAPID_PUBLIC_KEY,
+          vapidKeyPairValid: valid,
+          signatureLength: signature.byteLength,
+          normalizedSignatureLength: normalizedSignature.byteLength,
+          normalizedSignatureValid: normalizedValid,
+        });
       } catch (error) {
         return jsonResponse({ error: 'vapid_diagnostic_failed', detail: error.message }, 500);
       }
