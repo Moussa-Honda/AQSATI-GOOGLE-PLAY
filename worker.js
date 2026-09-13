@@ -32,8 +32,8 @@ const supabaseRequest = async (env, path, init = {}) => {
 
     const response = await fetch(`${config.url}/rest/v1/${path}`, { ...init, headers });
     if (response.ok) {
-      if (response.status === 204) return null;
-      return response.json();
+      const body = await response.text();
+      return body ? JSON.parse(body) : null;
     }
 
     // A stale Cloudflare URL/key should not prevent Push registration.

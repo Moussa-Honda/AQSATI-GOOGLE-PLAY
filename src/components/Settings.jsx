@@ -456,7 +456,7 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
       } else if (result.reason === 'denied') {
         setDueAlertsStatus('التنبيهات مرفوضة من إعدادات الجهاز. افتح إعدادات الإشعارات للتطبيق واختر السماح ثم أعد المحاولة.');
       } else if (result.reason === 'unsupported') {
-        setDueAlertsStatus('هذا المتصفح لا يدعم تنبيهات النظام، لكن زر الجرس داخل التطبيق يعمل بشكل طبيعي.');
+        setDueAlertsStatus('هذا المتصفح لا يدعم تنبيهات النظام.');
       } else if (result.reason === 'off') {
         setDueAlertsStatus('تم إيقاف تنبيهات الجهاز.');
       } else {
