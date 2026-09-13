@@ -77,42 +77,6 @@ const handlePushApi = async (request, env) => {
 
   if (url.pathname === '/api/push/config' && request.method === 'GET') {
     if (!env.VAPID_PUBLIC_KEY) return jsonResponse({ error: 'push_not_configured' }, 503);
-    if (url.searchParams.get('diag') === '1') {
-      try {
-        const { privateKey } = await getVapidKeys(env);
-        const data = utf8('fazatak-vapid-diagnostic');
-        const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, privateKey, data);
-        const publicKey = await crypto.subtle.importKey(
-          'raw',
-          base64UrlToBytes(env.VAPID_PUBLIC_KEY),
-          { name: 'ECDSA', namedCurve: 'P-256' },
-          false,
-          ['verify']
-        );
-        const normalizedSignature = normalizeEcdsaSignature(signature);
-        const valid = await crypto.subtle.verify(
-          { name: 'ECDSA', hash: 'SHA-256' },
-          publicKey,
-          signature,
-          data
-        );
-        const normalizedValid = await crypto.subtle.verify(
-          { name: 'ECDSA', hash: 'SHA-256' },
-          publicKey,
-          normalizedSignature,
-          data
-        );
-        return jsonResponse({
-          vapidPublicKey: env.VAPID_PUBLIC_KEY,
-          vapidKeyPairValid: valid,
-          signatureLength: signature.byteLength,
-          normalizedSignatureLength: normalizedSignature.byteLength,
-          normalizedSignatureValid: normalizedValid,
-        });
-      } catch (error) {
-        return jsonResponse({ error: 'vapid_diagnostic_failed', detail: error.message }, 500);
-      }
-    }
     return jsonResponse({ vapidPublicKey: env.VAPID_PUBLIC_KEY });
   }
 
@@ -159,12 +123,7 @@ const handlePushApi = async (request, env) => {
       data: { url: '/' },
     });
     if (result.expired) await deleteSubscription(env, record.endpoint);
-    return jsonResponse(
-      result.sent
-        ? { ok: true }
-        : { ok: false, error: 'push_send_failed', providerStatus: result.status, providerError: result.error },
-      result.sent ? 200 : 502
-    );
+    return jsonResponse({ ok: result.sent }, result.sent ? 200 : 502);
   }
 
   return jsonResponse({ error: 'not_found' }, 404);
@@ -287,7 +246,7 @@ const createVapidAuthorization = async (env, endpoint) => {
     privateKey,
     signed
   );
-  return `vapid t=${bytesToBase64Url(normalizeEcdsaSignature(signature))}, k=${publicKey}`;
+  return `vapid t=${header}.${payload}.${bytesToBase64Url(normalizeEcdsaSignature(signature))}, k=${publicKey}`;
 };
 
 const encryptPayload = async (subscription, payload) => {
@@ -344,16 +303,10 @@ const sendWebPush = async (env, subscription, payload) => {
       },
       body,
     });
-    const responseBody = response.ok ? '' : (await response.text()).slice(0, 240);
-    return {
-      sent: response.ok,
-      expired: response.status === 404 || response.status === 410,
-      status: response.status,
-      error: responseBody,
-    };
+    return { sent: response.ok, expired: response.status === 404 || response.status === 410 };
   } catch (error) {
     console.warn('[Push] Send failed:', error);
-    return { sent: false, expired: false, status: null, error: error.message || 'send_failed' };
+    return { sent: false, expired: false };
   }
 };
 
