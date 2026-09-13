@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { portfolioExpenseService, settingsService } from '../services/database';
+import { portfolioExpenseService, portfolioService, settingsService } from '../services/database';
 import { toHijriDate } from '../utils/dateUtils';
 import { generatePDF, PDF_MODES } from '../utils/pdfGenerator';
 import CustodyExpenseModal from './CustodyExpenseModal';
@@ -7,6 +7,7 @@ import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import { formatPrivateAmount, usePrivacyMode } from '../hooks/usePrivacyMode';
 
 const CustodyDetails = ({ custody, onBack, isReadOnly = false, onRenewalRequest }) => {
+  const [currentCustody, setCurrentCustody] = useState(custody);
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [spent, setSpent] = useState(0);
@@ -18,6 +19,7 @@ const CustodyDetails = ({ custody, onBack, isReadOnly = false, onRenewalRequest 
   const privacyMode = usePrivacyMode();
 
   useEffect(() => {
+    setCurrentCustody(custody);
     loadData();
     loadSettings();
   }, [custody.id]);
@@ -30,10 +32,14 @@ const CustodyDetails = ({ custody, onBack, isReadOnly = false, onRenewalRequest 
   const loadData = async () => {
     setLoading(true);
     try {
-      const list = await portfolioExpenseService.getByPortfolioId(custody.id);
-      const total = await portfolioExpenseService.getStats(custody.id);
+      const [list, total, latestCustody] = await Promise.all([
+        portfolioExpenseService.getByPortfolioId(custody.id),
+        portfolioExpenseService.getStats(custody.id),
+        portfolioService.getById(custody.id)
+      ]);
       setExpenses(list);
       setSpent(total);
+      if (latestCustody) setCurrentCustody(latestCustody);
     } catch (err) {
       console.error('Failed to load custody details:', err);
     } finally {
@@ -43,10 +49,15 @@ const CustodyDetails = ({ custody, onBack, isReadOnly = false, onRenewalRequest 
 
   useLiveRefresh(loadData, Boolean(custody?.id));
 
-  const handleDeleteExpense = async (id) => {
+  const handleDeleteExpense = async (expense) => {
     if (isReadOnly) return onRenewalRequest?.();
-    if (window.confirm('هل أنت متأكد من حذف هذا المصروف؟')) {
-      await portfolioExpenseService.delete(id);
+    const isReceipt = expense.entry_type === 'receipt';
+    const message = isReceipt
+      ? 'سيتم خصم قيمة سند القبض من إجمالي العهدة. هل تريد حذفه؟'
+      : 'هل أنت متأكد من حذف هذا المصروف؟';
+
+    if (window.confirm(message)) {
+      await portfolioExpenseService.delete(expense.id);
       loadData();
     }
   };
@@ -60,7 +71,7 @@ const CustodyDetails = ({ custody, onBack, isReadOnly = false, onRenewalRequest 
   const handleExportPDF = async () => {
     setGeneratingPdf(true);
     try {
-      await generatePDF(custody, PDF_MODES.CUSTODY_STATEMENT, expenses);
+      await generatePDF(currentCustody, PDF_MODES.CUSTODY_STATEMENT, expenses);
     } catch (err) {
       console.error('PDF Error:', err);
     } finally {
@@ -75,8 +86,8 @@ const CustodyDetails = ({ custody, onBack, isReadOnly = false, onRenewalRequest 
     if (operationFilter === 'expense') return expense.entry_type !== 'receipt';
     return true;
   });
-  const remaining = custody.capital - spent;
-  const spentPercentage = custody.capital > 0 ? (spent / custody.capital) * 100 : 0;
+  const remaining = currentCustody.capital - spent;
+  const spentPercentage = currentCustody.capital > 0 ? (spent / currentCustody.capital) * 100 : 0;
 
   if (loading) {
     return (
@@ -96,7 +107,7 @@ const CustodyDetails = ({ custody, onBack, isReadOnly = false, onRenewalRequest 
           </svg>
         </button>
         <div className="flex-1">
-          <h2 className="text-lg font-bold text-white">{custody.name}</h2>
+           <h2 className="text-lg font-bold text-white">{currentCustody.name}</h2>
           <p className="text-slate-400 text-xs">إدارة مصروفات العهدة</p>
         </div>
         <button
@@ -135,7 +146,7 @@ const CustodyDetails = ({ custody, onBack, isReadOnly = false, onRenewalRequest 
 
               <div className="space-y-4">
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-400">إجمالي العهدة: {formatPrivateAmount(custody.capital, privacyMode)}</span>
+                   <span className="text-slate-400">إجمالي العهدة: {formatPrivateAmount(currentCustody.capital, privacyMode)}</span>
                   <span className="text-rose-400">المنصرف: {formatPrivateAmount(spent, privacyMode)}</span>
                 </div>
                 
@@ -247,32 +258,30 @@ const CustodyDetails = ({ custody, onBack, isReadOnly = false, onRenewalRequest 
                     <span className={`font-bold ${isReceipt ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {isReceipt ? '+' : '-'}{formatPrivateAmount(exp.amount, privacyMode)}
                     </span>
-                    {!isReceipt && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleEditExpense(exp)}
-                          className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-blue-500/10 hover:text-blue-400"
-                          aria-label="تعديل المصروف"
-                          title="تعديل المصروف"
-                        >
-                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                          </svg>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteExpense(exp.id)}
-                          className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
-                          aria-label="حذف المصروف"
-                          title="حذف المصروف"
-                        >
-                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleEditExpense(exp)}
+                        className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-blue-500/10 hover:text-blue-400"
+                        aria-label={isReceipt ? 'تعديل سند القبض' : 'تعديل المصروف'}
+                        title={isReceipt ? 'تعديل سند القبض' : 'تعديل المصروف'}
+                      >
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteExpense(exp)}
+                        className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+                        aria-label={isReceipt ? 'حذف سند القبض' : 'حذف المصروف'}
+                        title={isReceipt ? 'حذف سند القبض' : 'حذف المصروف'}
+                      >
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
