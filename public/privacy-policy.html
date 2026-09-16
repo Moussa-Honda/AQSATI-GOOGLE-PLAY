@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>سياسة الخصوصية — تطبيق أقساطي (Aqsati)</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --emerald: #10b981;
+      --border: #334155;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Tajawal', sans-serif;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.8;
+      padding: 2rem 1rem;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 1.5rem;
+      padding: 2.5rem;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      width: 72px;
+      height: 72px;
+      border-radius: 1rem;
+      margin-bottom: 1rem;
+      border: 1px solid var(--emerald);
+    }
+    h1 {
+      font-size: 1.875rem;
+      color: #fff;
+      margin-bottom: 0.5rem;
+    }
+    .badge {
+      display: inline-block;
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--emerald);
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.875rem;
+      font-weight: bold;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .date {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-top: 0.5rem;
+    }
+    h2 {
+      font-size: 1.25rem;
+      color: var(--emerald);
+      margin: 2rem 0 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    p, li {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      margin-bottom: 1rem;
+    }
+    ul {
+      margin-right: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    li {
+      margin-bottom: 0.5rem;
+    }
+    .highlight-box {
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      border-radius: 1rem;
+      padding: 1.25rem;
+      margin: 1.5rem 0;
+    }
+    .highlight-box p {
+      color: #e2e8f0;
+      margin-bottom: 0;
+    }
+    footer {
+      text-align: center;
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <img src="/logo-aqsati.png" alt="شعار أقساطي" class="logo" onerror="this.src='/favicon.png'">
+      <h1>سياسة الخصوصية — تطبيق أقساطي</h1>
+      <span class="badge">Aqsati Offline / نظام محلي 100%</span>
+      <p class="date">آخر تحديث: سبتمبر 2026 | Application ID: com.installment.app</p>
+    </div>
+
+    <div class="highlight-box">
+      <p><strong>التزامنا الأساسي بالخصوصية:</strong> تطبيق "أقساطي" مصمم على مبدأ الأولوية للبيانات المحلية (Local-First Architecture). بياناتك المحاسبية وقوائم العملاء والعقود والأقساط تُخزن محلياً على ذاكرة جهازك فقط داخل قاعدة بيانات SQLite المشفرة، ولا يتم بيع أو مشاركة بياناتك مع أي أطراف ثالثة نهائياً.</p>
+    </div>
+
+    <h2>1. البيانات التي يتم التعامل معها</h2>
+    <p>يتعامل التطبيق مع البيانات التالية لغرض تقديم خدماته المحاسبية فقط:</p>
+    <ul>
+      <li><strong>بيانات العملاء والأقساط:</strong> أسماء العملاء، أرقام الهواتف، تفاصيل العقود، ومواعيد ومبالغ الأقساط، ويتم حفظها محلياً بالكامل داخل جهازك.</li>
+      <li><strong>الصور والمستندات:</strong> صور الهويات أو العقود التي يختار المستخدم تصويرها أو إرفاقها، وتُحفظ محلياً في مساحة التخزين الخاصة بالتطبيق.</li>
+      <li><strong>بيانات الاشتراك وترخيص Google Play:</strong> تتم معالجة عمليات الشراء عبر نظام الفوترة الرسمي لمتجر Google Play Billing؛ التطبيق لا يخزن أي بيانات لبطاقات الائتمان أو وسائل الدفع، ويحتفظ فقط برمز الاستحقاق المشفر (Entitlement Token) للتحقق من صلاحية الاستخدام.</li>
+    </ul>
+
+    <h2>2. الصلاحيات المطلوبة والسبب</h2>
+    <p>يطلب التطبيق الحد الأدنى من الصلاحيات اللازمة لتشغيل الميزات الأساسية:</p>
+    <ul>
+      <li><strong>صلاحية الإنترنت (INTERNET):</strong> لازمة للاتصال بمتجر Google Play Billing للتحقق من الاشتراكات، ولخدمة النسخ الاحتياطي الاختياري على Google Drive بطلب المستخدم.</li>
+      <li><strong>صلاحية جهات الاتصال (READ_CONTACTS):</strong> تتيح لك اختيار رقم وبيانات العميل مباشرة من دفتر الهاتف عند إضافة عميل جديد، ولا يتم نسخ دفتر العناوين أو إرساله إلى أي مكان.</li>
+      <li><strong>صلاحية الكاميرا (CAMERA):</strong> لالتقاط صور إيصالات السداد أو مستندات العقود وإرفاقها بالسجلات المحلية فقط.</li>
+      <li><strong>صلاحية الإشعارات (POST_NOTIFICATIONS):</strong> لإرسال تذكيرات محلية بمواعيد استحقاق الأقساط اليومية والمتأخرة.</li>
+      <li><strong>صلاحية البصمة والمصادقة الحيوية (USE_BIOMETRIC):</strong> لتأمين فتح التطبيق وحمايته، وتتم المصادقة عبر معالج أمان نظام الأندرويد نفسه دون وصول التطبيق لبيانات البصمة الأصلية.</li>
+    </ul>
+
+    <h2>3. النسخ الاحتياطي السحابي (Google Drive Backup)</h2>
+    <p>يوفر التطبيق ميزة اختيارية إضافية تتيح لك حفظ نسخة احتياطية مشفرة على حسابك الشخصي في Google Drive. هذه الميزة تعمل بطلب صريح منك، ولا يمكن لأي طرف خارجي الوصول إلى ملف النسخة الاحتياطية المحفوظ في حسابك الخاص.</p>
+
+    <h2>4. أمان وتشفير البيانات</h2>
+    <p>نطبق معايير أمنية متقدمة تشمل:</p>
+    <ul>
+      <li>تشفير رموز الترخيص والاستحقاق باستخدام مفاتيح تشفير قوية (AES-256) عبر مكتبة <code>androidx.security:security-crypto</code>.</li>
+      <li>حماية الشاشة من الالتقاط العشوائي عند تفعيل وضع الخصوصية.</li>
+      <li>قفل التطبيق برمز مرور أو بصمة الإصبع لمنع الوصول غير المصرح به محلياً.</li>
+    </ul>
+
+    <h2>5. خصوصية الأطفال</h2>
+    <p>تطبيق "أقساطي" مخصص للاستخدام التجاري والمحاسبي وإدارة الالتزامات المالية للأفراد والشركات، ولا يستهدف أو يجمع أي بيانات من الأطفال تحت سن 13 عاماً.</p>
+
+    <h2>6. التعديلات على هذه السياسة</h2>
+    <p>قد نقوم بتحديث سياسة الخصوصية من وقت لآخر بما يتوافق مع سياسات متجر Google Play والأنظمة المعمول بها. سيتم نشر أي تعديلات على هذه الصفحة مباشرة.</p>
+
+    <h2>7. التواصل والدعم الفني</h2>
+    <p>إذا كان لديك أي أسئلة أو استفسارات حول سياسة الخصوصية أو بياناتك في التطبيق، يمكنك التواصل معنا مباشرة:</p>
+    <ul>
+      <li><strong>البريد الإلكتروني:</strong> honda.druid@gmail.com</li>
+      <li><strong>الدعم الفني:</strong> عبر تطبيق أقساطي — قسم الإعدادات</li>
+    </ul>
+
+    <footer>
+      <p>© 2026 تطبيق أقساطي (Aqsati) — جميع الحقوق محفوظة</p>
+    </footer>
+  </div>
+</body>
+</html>

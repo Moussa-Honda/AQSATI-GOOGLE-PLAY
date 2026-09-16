@@ -982,8 +982,50 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
         </div>
       </div>
 
-      <div className="text-center text-slate-500 text-sm pt-4">
-         <p>نظام أقساطي - تخزين محلي آمن على جهازك</p>
+      {/* App Information & Privacy Policy */}
+      <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 shadow-sm space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-lg">
+              🛡️
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">عن تطبيق أقساطي</h3>
+              <p className="text-xs text-slate-400">الإصدار 1.0.0 (Build 47) • حماية وخصوصية تامة</p>
+            </div>
+          </div>
+          <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+            محلي 100%
+          </span>
+        </div>
+
+        <p className="text-xs text-slate-400 leading-relaxed">
+          تطبيق أقساطي مصمم لحفظ كافة بياناتك المحاسبية والعقود محلياً داخل جهازك دون مشاركتها مع أي طرف ثالث.
+        </p>
+
+        <div className="pt-2 border-t border-slate-700/60 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => window.open('/privacy-policy.html', '_blank')}
+            className="flex-1 min-w-[140px] py-2.5 px-3 bg-slate-900 hover:bg-slate-950 border border-slate-700 hover:border-emerald-500/50 text-slate-300 hover:text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
+          >
+            <span>📜</span>
+            <span>سياسة الخصوصية</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => licenseService.openSubscriptionManagement()}
+            className="flex-1 min-w-[140px] py-2.5 px-3 bg-slate-900 hover:bg-slate-950 border border-slate-700 hover:border-emerald-500/50 text-slate-300 hover:text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
+          >
+            <span>💳</span>
+            <span>إدارة اشتراك Google Play</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="text-center text-slate-500 text-xs pt-2">
+         <p>نظام أقساطي - تخزين محلي آمن على جهازك © 2026</p>
       </div>
 
       {/* ── نافذة اختيار نسخة Google Drive للاسترجاع ── */}
