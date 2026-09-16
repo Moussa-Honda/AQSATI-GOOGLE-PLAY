@@ -359,6 +359,75 @@ export const authService = {
   },
 
   /**
+   * جلب أو تهيئة حساب المدير المحلي للتحقق من الترخيص والاستحقاق
+   */
+  async getOrInitAdminUser(deviceId = '0500000000', expirySeconds = null) {
+    try {
+      const existing = await userService.getFirstUser();
+      const expiryIso = expirySeconds 
+        ? new Date(Number(expirySeconds) * 1000).toISOString() 
+        : PERPETUAL_EXPIRY;
+
+      if (existing) {
+        const safeUser = {
+          id: existing.id,
+          phone: existing.phone || normalizePhone(deviceId) || '0500000000',
+          name: existing.name || 'مدير النظام',
+          role: existing.role || 'admin',
+          subscription_status: 'active',
+          subscription_expiry: expiryIso,
+          created_at: existing.created_at || new Date().toISOString()
+        };
+        this.setCurrentUser(safeUser);
+        return safeUser;
+      }
+
+      const defaultPhone = normalizePhone(deviceId) || '0500000000';
+      const defaultPassHash = await hashSecureValue('123456', defaultPhone);
+      const defaultPinHash = await hashSecureValue('1234', defaultPhone);
+
+      let created;
+      try {
+        created = await userService.create({
+          phone: defaultPhone,
+          name: 'مدير النظام',
+          password_hash: defaultPassHash,
+          pin_hash: defaultPinHash,
+          role: 'admin'
+        });
+      } catch {
+        created = { id: 1 };
+      }
+
+      const safeUser = {
+        id: created?.id || 1,
+        phone: defaultPhone,
+        name: 'مدير النظام',
+        role: 'admin',
+        subscription_status: 'active',
+        subscription_expiry: expiryIso,
+        created_at: new Date().toISOString()
+      };
+
+      this.setCurrentUser(safeUser);
+      return safeUser;
+    } catch (err) {
+      console.error('[authService] getOrInitAdminUser error:', err);
+      const fallbackUser = {
+        id: 1,
+        phone: normalizePhone(deviceId) || '0500000000',
+        name: 'مدير النظام',
+        role: 'admin',
+        subscription_status: 'active',
+        subscription_expiry: PERPETUAL_EXPIRY,
+        created_at: new Date().toISOString()
+      };
+      this.setCurrentUser(fallbackUser);
+      return fallbackUser;
+    }
+  },
+
+  /**
    * دخول سريع ومباشر كمدير محلي بدون كلمة مرور (لتجربة فورية سهلة بدون تعقيد)
    */
   async quickLocalAccess(adminName = 'مدير النظام') {

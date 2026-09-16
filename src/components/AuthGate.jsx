@@ -3,7 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { authService } from '../services/authService';
 import licenseService from '../services/license';
 
-const AuthGate = ({ onAuthenticated, isExpired = false, initialUser = null }) => {
+const AuthGate = ({ onAuthenticated, isExpired = false, initialUser = null, onClose = null }) => {
   const [deviceId, setDeviceId] = useState('');
   const [activationCode, setActivationCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -202,6 +202,16 @@ const AuthGate = ({ onAuthenticated, isExpired = false, initialUser = null }) =>
       <div className="fixed top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -z-10" />
 
       <div className="auth-card w-full max-w-md rounded-3xl border border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.6)] overflow-hidden my-auto relative backdrop-blur-2xl">
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-4 left-4 z-30 w-8 h-8 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors text-xs font-bold border border-slate-700 cursor-pointer shadow-md"
+            aria-label="إغلاق النافذة"
+          >
+            ✕
+          </button>
+        )}
         
         {/* Header Branding */}
         <div className="relative pt-6 pb-3 px-6 text-center overflow-hidden">

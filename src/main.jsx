@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { Capacitor } from '@capacitor/core'
 import { defineCustomElements as jeepSqlite } from 'jeep-sqlite/loader'
 import { initDatabase } from './services/database.js'
 import './index.css'
@@ -15,8 +16,14 @@ syncViewportHeight()
 window.addEventListener('resize', syncViewportHeight)
 window.visualViewport?.addEventListener('resize', syncViewportHeight)
 
-// Register jeep-sqlite web component for in-browser SQLite WebAssembly
-jeepSqlite(window)
+// Register jeep-sqlite web component ONLY in browser (Capacitor native uses native SQLite)
+if (!Capacitor.isNativePlatform()) {
+  try {
+    jeepSqlite(window)
+  } catch (e) {
+    console.warn('[jeepSqlite] register warning:', e)
+  }
+}
 
 // Register Service Worker for Offline PWA
 if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
@@ -28,35 +35,35 @@ if ('serviceWorker' in navigator && window.location.protocol.startsWith('http'))
       })
 
       console.log('[SW] Registered ✅ scope:', registration.scope)
-
-      // لا نُعيد التحميل تلقائياً لتجنب فقدان البيانات
-      // التحديث يحدث في المرة القادمة التي يفتح فيها المستخدم التطبيق
-
     } catch (err) {
       console.warn('[SW] Registration failed:', err)
     }
   })
 }
 
-
 const mountApp = async () => {
   try {
-    // Ensure jeep-sqlite element is attached and defined before initDatabase
-    if (typeof document !== 'undefined') {
-      let jeepEl = document.querySelector('jeep-sqlite')
-      if (!jeepEl && document.body) {
-        jeepEl = document.createElement('jeep-sqlite')
-        jeepEl.setAttribute('wasmPath', '/assets')
-        jeepEl.setAttribute('autoSave', 'true')
-        document.body.appendChild(jeepEl)
-      } else if (jeepEl) {
-        jeepEl.setAttribute('autoSave', 'true')
+    // Only setup jeep-sqlite DOM element on web
+    if (!Capacitor.isNativePlatform()) {
+      if (typeof document !== 'undefined') {
+        let jeepEl = document.querySelector('jeep-sqlite')
+        if (!jeepEl && document.body) {
+          jeepEl = document.createElement('jeep-sqlite')
+          jeepEl.setAttribute('wasmPath', '/assets')
+          jeepEl.setAttribute('autoSave', 'true')
+          document.body.appendChild(jeepEl)
+        } else if (jeepEl) {
+          jeepEl.setAttribute('autoSave', 'true')
+        }
       }
-    }
-    if (typeof customElements !== 'undefined') {
-      try {
-        await customElements.whenDefined('jeep-sqlite')
-      } catch {}
+      if (typeof customElements !== 'undefined') {
+        try {
+          await Promise.race([
+            customElements.whenDefined('jeep-sqlite'),
+            new Promise((resolve) => setTimeout(resolve, 500))
+          ])
+        } catch {}
+      }
     }
 
     await initDatabase()

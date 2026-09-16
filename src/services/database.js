@@ -299,7 +299,10 @@ export const initDatabase = async () => {
       }
       if (typeof customElements !== 'undefined') {
         try {
-          await customElements.whenDefined('jeep-sqlite');
+          await Promise.race([
+            customElements.whenDefined('jeep-sqlite'),
+            new Promise((resolve) => setTimeout(resolve, 500))
+          ]);
         } catch {}
       }
       await sqlite.initWebStore();

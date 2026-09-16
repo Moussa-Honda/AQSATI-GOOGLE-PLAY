@@ -152,15 +152,19 @@ export function useOnboarding() {
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
-    const done = localStorage.getItem(ONBOARDING_KEY) || localStorage.getItem('fazatak_onboarding_done');
-    if (!done) {
-      setShowOnboarding(true);
-    }
+    try {
+      const done = localStorage.getItem(ONBOARDING_KEY) || localStorage.getItem('fazatak_onboarding_done');
+      if (!done) {
+        setShowOnboarding(true);
+      }
+    } catch {}
     setChecked(true);
   }, []);
 
   const completeOnboarding = useCallback(() => {
-    localStorage.setItem(ONBOARDING_KEY, '1');
+    try {
+      localStorage.setItem(ONBOARDING_KEY, '1');
+    } catch {}
     setShowOnboarding(false);
   }, []);
 
@@ -171,17 +175,11 @@ export default function WelcomeOnboarding({ onComplete }) {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [animating, setAnimating] = useState(false);
   const [direction, setDirection] = useState('next');
-  const [visible, setVisible] = useState(false);
+  const [visible, setVisible] = useState(true);
 
   const slide = slides[currentSlide];
   const accent = accentClasses[slide.accent];
   const isLast = currentSlide === slides.length - 1;
-
-  useEffect(() => {
-    // Entrance animation
-    const t = setTimeout(() => setVisible(true), 50);
-    return () => clearTimeout(t);
-  }, []);
 
   const goTo = (nextIndex, dir = 'next') => {
     if (animating) return;

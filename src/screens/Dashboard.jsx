@@ -476,6 +476,34 @@ const Dashboard = ({ isExpired, expiry, isTrial = false, onReActivate, currentUs
               </div>
             )}
 
+            {isTrial && !isExpired && (
+              <div className="mx-4 mt-4 p-4 bg-gradient-to-l from-emerald-500/15 via-teal-500/10 to-slate-800/80 border border-emerald-500/30 rounded-2xl flex items-center justify-between gap-3 shadow-lg shadow-emerald-950/20">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-xl shrink-0">
+                    ⭐
+                  </div>
+                  <div>
+                    <h4 className="text-emerald-300 font-bold text-xs flex items-center gap-2">
+                      فترة تجربة مجانية نشطة
+                      <span className="bg-emerald-500/20 text-emerald-300 text-[10px] px-2 py-0.5 rounded-full border border-emerald-500/30 font-medium">
+                        {remainingText}
+                      </span>
+                    </h4>
+                    <p className="text-slate-400 text-[10px] mt-0.5">
+                      كافة ميزات التطبيق متاحة لك بالكامل. يمكنك مراجعة والاشتراك في باقات Google Play في أي وقت.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowRenewal(true)}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl text-xs font-bold shadow-md shadow-emerald-600/30 transition-all active:scale-95 whitespace-nowrap cursor-pointer shrink-0"
+                >
+                  باقات الاشتراك ✦
+                </button>
+              </div>
+            )}
+
             <div className="dashboard-topbar p-4 flex items-center justify-between border-b" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-slate-900 border border-emerald-400/30 flex items-center justify-center p-0.5 overflow-hidden">
@@ -487,16 +515,22 @@ const Dashboard = ({ isExpired, expiry, isTrial = false, onReActivate, currentUs
                </div>
                <MotivationalTicker enabled={showMotivationalTicker} startedAt={tickerStartedAt} />
                {remainingText && (
-                 <div className={`px-3 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1.5 border shadow-sm ${
-                   isExpired ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
-                   remainingText === 'تفعيل دائم' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
-                   isTrial ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' :
-                   'bg-blue-500/10 text-blue-400 border-blue-500/30'
-                 }`}>
-                  <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                  {remainingText}
-                </div>
-              )}
+                 <button
+                   type="button"
+                   onClick={() => setShowRenewal(true)}
+                   className={`px-3 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1.5 border shadow-sm transition-all hover:scale-105 active:scale-95 cursor-pointer ${
+                     isExpired ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
+                     remainingText === 'تفعيل دائم' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+                     isTrial ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25' :
+                     'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                   }`}
+                   title="اضغط للاطلاع على تفاصيل وباقات الاشتراك"
+                 >
+                   <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                   {remainingText}
+                   <span className="text-[9px] opacity-80 mr-0.5">✦</span>
+                 </button>
+               )}
             </div>
 
             <div className="px-4 pt-4">
@@ -853,8 +887,9 @@ const Dashboard = ({ isExpired, expiry, isTrial = false, onReActivate, currentUs
               إغلاق [✕]
             </button>
             <AuthGate
-              isExpired={true}
+              isExpired={isExpired}
               initialUser={currentUser}
+              onClose={() => setShowRenewal(false)}
               onAuthenticated={() => {
                 setShowRenewal(false);
                 onReActivate?.();

@@ -673,7 +673,16 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
               <p className="text-white text-sm font-bold">إدارة الاشتراك واستعادة المشتريات</p>
               <p className="text-emerald-300 text-xs mt-1">تتم إدارة الاشتراكات واستعادتها والدفع عبر متجر Google Play بأمان</p>
             </div>
-            <div className="flex gap-2 shrink-0">
+            <div className="flex flex-wrap gap-2 shrink-0">
+              {onRenewalRequest && (
+                <button
+                  type="button"
+                  onClick={onRenewalRequest}
+                  className="h-10 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl text-xs font-bold hover:from-emerald-500 hover:to-teal-500 transition-colors active:scale-95 shadow-sm shadow-emerald-600/30"
+                >
+                  باقات وأسعار الاشتراك ✦
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleRestorePurchases}
@@ -685,7 +694,7 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
               <button
                 type="button"
                 onClick={handleOpenSubscriptionManagement}
-                className="h-10 px-4 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-500 transition-colors active:scale-95"
+                className="h-10 px-4 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 rounded-xl text-xs font-bold hover:text-white transition-colors active:scale-95"
               >
                 إدارة الاشتراك في المتجر
               </button>
