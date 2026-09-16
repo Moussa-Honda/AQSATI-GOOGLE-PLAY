@@ -5,19 +5,14 @@ import CustomerList from '../components/CustomerList';
 import ContractList from '../components/ContractList';
 import Settings from '../components/Settings';
 import AuthGate from '../components/AuthGate';
-import LicenseGate from '../components/LicenseGate';
 import CustodyList from '../components/CustodyList';
 import CustodyDetails from '../components/CustodyDetails';
 import ManagerList from '../components/ManagerList';
 import { generatePDFStatement } from '../utils/pdfGenerator';
-import { contractService, customerService, installmentService, settingsService } from '../services/database';
+import { contractService, customerService, installmentService, managerService, settingsService } from '../services/database';
 import { formatForWhatsApp } from '../utils/phoneUtils';
 import { notifyPageNavigated } from '../services/dataEvents';
-import { cloudSyncService } from '../services/cloudSyncService';
 import { formatPrivateAmount, usePrivacyMode } from '../hooks/usePrivacyMode';
-
-const SUPPORT_PHONE_DISPLAY = '+966556854162';
-const SUPPORT_WHATSAPP_PHONE = '966556854162';
 
 const formatAmount = (value, privacyMode) => formatPrivateAmount(value, privacyMode);
 
@@ -28,8 +23,8 @@ const ALERT_META = {
     badge: 'bg-amber-500/15 text-amber-300 border-amber-500/40'
   },
   late: {
-    title: 'الأقساط المتأخرة حديثاً',
-    empty: 'لا توجد أقساط متأخرة حديثاً خارج قسم المتعثرين.',
+    title: 'الأقساط المتأخرة',
+    empty: 'لا توجد أقساط متأخرة.',
     badge: 'bg-rose-500/15 text-rose-300 border-rose-500/40'
   },
   upcoming: {
@@ -73,32 +68,42 @@ const getAlertAmount = (item) => {
 
 const HomeAlertsPanel = ({ alerts, loading, onSelectAlert, privacyMode }) => {
   const total = alerts?.total || 0;
+  const lateCount = alerts?.late?.length || 0;
+  const todayCount = alerts?.today?.length || 0;
+  const upcomingCount = alerts?.upcoming?.length || 0;
+
   const cards = [
     {
       key: 'today',
       title: 'اليوم',
-      count: alerts?.today?.length || 0,
+      count: todayCount,
       detail: 'استحقاقات اليوم',
-      color: 'border-amber-500/40 bg-amber-500/10 text-amber-300',
-      dot: 'bg-amber-400',
+      color: todayCount > 0 
+        ? 'border-amber-500/60 bg-amber-500/15 text-amber-300 shadow-sm shadow-amber-500/10' 
+        : 'border-slate-700/60 bg-slate-800/40 text-slate-400 hover:border-slate-600',
+      dot: todayCount > 0 ? 'bg-amber-400 animate-pulse' : 'bg-slate-600',
       onClick: () => onSelectAlert('today')
     },
     {
       key: 'late',
       title: 'متأخر',
-      count: alerts?.late?.length || 0,
+      count: lateCount,
       detail: 'متابعة مطلوبة',
-      color: 'border-rose-500/40 bg-rose-500/10 text-rose-300',
-      dot: 'bg-rose-400',
+      color: lateCount > 0 
+        ? 'border-rose-500/60 bg-rose-500/15 text-rose-300 shadow-sm shadow-rose-500/10' 
+        : 'border-slate-700/60 bg-slate-800/40 text-slate-400 hover:border-slate-600',
+      dot: lateCount > 0 ? 'bg-rose-400 animate-pulse' : 'bg-slate-600',
       onClick: () => onSelectAlert('late')
     },
     {
       key: 'upcoming',
       title: 'قريباً',
-      count: alerts?.upcoming?.length || 0,
+      count: upcomingCount,
       detail: 'خلال 3 أيام',
-      color: 'border-sky-500/40 bg-sky-500/10 text-sky-300',
-      dot: 'bg-sky-400',
+      color: upcomingCount > 0 
+        ? 'border-sky-500/60 bg-sky-500/15 text-sky-300 shadow-sm shadow-sky-500/10' 
+        : 'border-slate-700/60 bg-slate-800/40 text-slate-400 hover:border-slate-600',
+      dot: upcomingCount > 0 ? 'bg-sky-400 animate-pulse' : 'bg-slate-600',
       onClick: () => onSelectAlert('upcoming')
     }
   ];
@@ -114,26 +119,23 @@ const HomeAlertsPanel = ({ alerts, loading, onSelectAlert, privacyMode }) => {
     );
   }
 
-  if (total === 0) {
-    return (
-      <div className="premium-alerts-panel bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-bold text-emerald-300">كل الأقساط هادئة اليوم</h3>
-          <p className="text-xs text-emerald-300/70 mt-1">لا توجد أقساط قريبة أو مستحقة أو متأخرة خارج قسم المتعثرين.</p>
-        </div>
-        <span className="w-3 h-3 rounded-full bg-emerald-400 shadow-[0_0_14px] shadow-emerald-400/60" />
-      </div>
-    );
-  }
-
   return (
     <div className="premium-alerts-panel bg-slate-800/50 border border-slate-700/60 rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-bold text-white flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-emerald-300 shadow-[0_0_12px_rgba(69,210,160,0.8)]" />
-          استحقاقات الأقساط
+          <span className={`w-2 h-2 rounded-full ${total > 0 ? 'bg-rose-400 animate-pulse' : 'bg-emerald-400'} shadow-[0_0_12px_rgba(69,210,160,0.8)]`} />
+          متابعة الاستحقاقات
         </h3>
-         <span className="text-xs text-slate-400">{total} قسط • {formatPrivateAmount(alerts?.totalAmount, privacyMode, 'ر.س')}</span>
+        {total > 0 ? (
+          <span className="text-xs font-semibold text-rose-300 bg-rose-500/15 border border-rose-500/30 px-2.5 py-0.5 rounded-full">
+            {total} قسط مستحق • {formatPrivateAmount(alerts?.totalAmount, privacyMode, 'ر.س')}
+          </span>
+        ) : (
+          <span className="text-xs text-emerald-400/90 flex items-center gap-1 font-medium">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            جميع الأقساط منتظمة
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-3 gap-2">
@@ -142,7 +144,7 @@ const HomeAlertsPanel = ({ alerts, loading, onSelectAlert, privacyMode }) => {
             key={card.key}
             type="button"
             onClick={card.onClick}
-            className={`border rounded-xl p-3 text-right transition-all active:scale-[0.98] ${card.color}`}
+            className={`border rounded-xl p-3 text-right transition-all active:scale-[0.98] cursor-pointer ${card.color}`}
           >
             <div className="flex items-center justify-between gap-1 mb-1.5">
               <span className="text-xs font-bold truncate">{card.title}</span>
@@ -251,7 +253,7 @@ const HomeAlertsModal = ({ isOpen, onClose, alertType, homeAlerts, onOpenCustome
   );
 };
 
-const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) => {
+const Dashboard = ({ isExpired, expiry, isTrial = false, onReActivate, currentUser, onLogout }) => {
   const { stats: personalStats } = useStats();
   const { stats: managerStats } = useManagerStats();
   const privacyMode = usePrivacyMode();
@@ -293,7 +295,7 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
     try {
       setHomeAlertsLoading(true);
       const data = await installmentService.getHomeAlerts(3);
-      setHomeAlerts(data);
+      setHomeAlerts(data || { late: [], today: [], upcoming: [], total: 0, totalAmount: 0 });
     } catch (error) {
       console.error('Home alerts error:', error);
     } finally {
@@ -331,11 +333,7 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
       managerId: selectedManager?.id,
       custodyId: selectedCustody?.id
     });
-
-    if (currentUser?.phone) {
-      cloudSyncService.syncWithCloud(currentUser.phone).catch(() => {});
-    }
-  }, [activeTab, selectedCustomer?.id, selectedManager?.id, selectedCustody?.id, currentUser?.phone]);
+  }, [activeTab, selectedCustomer?.id, selectedManager?.id, selectedCustody?.id]);
 
   const getRemainingDays = () => {
     if (isExpired) return 'منتهي (عرض فقط)';
@@ -345,15 +343,13 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
     const diff = expiry - now;
     if (diff <= 0) return 'منتهي (عرض فقط)';
     const days = Math.ceil(diff / (24 * 60 * 60));
+    if (isTrial) {
+      return `فترة سماح: باقي ${days} يوم`;
+    }
     return `باقي ${days} يوم`;
   };
 
   const remainingText = getRemainingDays();
-
-  const handleSupportWhatsApp = () => {
-    const message = 'السلام عليكم، أريد تجديد اشتراك تطبيق أقساطي.';
-    window.open(`https://wa.me/${SUPPORT_WHATSAPP_PHONE}?text=${encodeURIComponent(message)}`, '_blank');
-  };
 
   const handleOpenAlertCustomer = async (item) => {
     try {
@@ -364,7 +360,16 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
       }
 
       setSelectedAlertType(null);
-      setSelectedManager(null);
+      if (customer.manager_id) {
+        try {
+          const mgr = await managerService.getById(customer.manager_id);
+          setSelectedManager(mgr || null);
+        } catch {
+          setSelectedManager(null);
+        }
+      } else {
+        setSelectedManager(null);
+      }
       setSelectedCustomer(customer);
       setActiveTab('managers');
     } catch (error) {
@@ -458,20 +463,14 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
               <div className="mx-4 mt-4 p-4 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center justify-between gap-3">
                 <div className="flex-1">
                   <h4 className="text-rose-400 font-bold text-sm">انتهى الاشتراك! ⚠️</h4>
-                  <p className="text-rose-400/80 text-[10px]">لتجديد الاشتراك تواصل معنا: <span dir="ltr">{SUPPORT_PHONE_DISPLAY}</span></p>
+                  <p className="text-rose-400/80 text-[10px]">وضع العرض فقط: يمكنك تصفح البيانات ولكن لا يمكن إنشاء معاملات جديدة حتى تجديد الاشتراك.</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={handleSupportWhatsApp}
-                    className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-bold shadow-lg shadow-emerald-600/20"
-                  >
-                    واتساب
-                  </button>
-                  <button
                     onClick={() => setShowRenewal(true)}
-                    className="bg-rose-500 text-white px-3 py-2 rounded-lg text-xs font-bold shadow-lg shadow-rose-500/20"
+                    className="bg-rose-500 hover:bg-rose-400 text-white px-3.5 py-2 rounded-lg text-xs font-bold shadow-lg shadow-rose-500/20 transition-all active:scale-95 cursor-pointer"
                   >
-                    تجديد
+                    تجديد الاشتراك
                   </button>
                 </div>
               </div>
@@ -479,8 +478,8 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
 
             <div className="dashboard-topbar p-4 flex items-center justify-between border-b" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-400/30 flex items-center justify-center">
-                  <img src="/logo-mark.svg" alt="شعار أقساطي" className="w-full h-full rounded-2xl" />
+                <div className="w-10 h-10 rounded-2xl bg-slate-900 border border-emerald-400/30 flex items-center justify-center p-0.5 overflow-hidden">
+                  <img src="/logo-aqsati.png" alt="شعار أقساطي" className="w-full h-full object-contain rounded-xl" />
                 </div>
                 <div>
                    <p className="brand-serif text-xl leading-none text-white">أقساطي</p>
@@ -488,11 +487,12 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
                </div>
                <MotivationalTicker enabled={showMotivationalTicker} startedAt={tickerStartedAt} />
                {remainingText && (
-                <div className={`px-3 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1.5 border shadow-sm ${
-                  isExpired ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
-                  remainingText === 'تفعيل دائم' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
-                  'bg-blue-500/10 text-blue-400 border-blue-500/30'
-                }`}>
+                 <div className={`px-3 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1.5 border shadow-sm ${
+                   isExpired ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
+                   remainingText === 'تفعيل دائم' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+                   isTrial ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' :
+                   'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                 }`}>
                   <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
                   {remainingText}
                 </div>
@@ -730,6 +730,7 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
       case 'settings':
         return <Settings 
           isReadOnly={isExpired} 
+          isTrial={isTrial}
           onRenewalRequest={() => setShowRenewal(true)} 
            onSettingsChange={() => {
              loadHomeAlerts();
@@ -767,12 +768,6 @@ const Dashboard = ({ isExpired, expiry, onReActivate, currentUser, onLogout }) =
               className="px-3 py-1 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 rounded-lg font-black text-xs shadow-md transition-all active:scale-95 cursor-pointer"
             >
               تجديد الآن
-            </button>
-            <button
-              onClick={handleSupportWhatsApp}
-              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-xs shadow transition-all active:scale-95 cursor-pointer"
-            >
-              واتساب
             </button>
           </div>
         </div>

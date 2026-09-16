@@ -145,11 +145,14 @@ public class LicensePlugin extends Plugin {
                 .putLong("expiry", expiry)
                 .putLong("last_seen_time", now)
                 .putString("derived_key", derivedKey)
+                .remove("trial_start_time")
+                .remove("trial_expiry")
                 .apply();
 
             JSObject ret = new JSObject();
             ret.put("success", true);
             ret.put("expiry", expiry);
+            ret.put("isTrial", false);
             ret.put("key", derivedKey);
             call.resolve(ret);
 
@@ -171,10 +174,40 @@ public class LicensePlugin extends Plugin {
             call.reject("ERR_TIME_TAMPERED");
             return;
         }
+
+        // إذا لم يكن هناك كود تفعيل مسجل، نفحص فترة السماح المجانية لمدة شهر (30 يوم) للمستخدم الجديد
         if (code == null) {
-            call.reject("ERR_NO_LICENSE");
+            long trialStart = prefs.getLong("trial_start_time", 0);
+            long trialExpiry = prefs.getLong("trial_expiry", 0);
+
+            // أول تشغيل للتطبيق على هذا الجهاز: منح فترة سماح شهر (30 يوم) تلقائياً
+            if (trialStart == 0) {
+                trialStart = now;
+                trialExpiry = now + (30L * 24 * 60 * 60); // 30 يوماً
+                prefs.edit()
+                    .putLong("trial_start_time", trialStart)
+                    .putLong("trial_expiry", trialExpiry)
+                    .putLong("last_seen_time", now)
+                    .putString("derived_key", "AQSATI_TRIAL_KEY")
+                    .apply();
+            }
+
+            if (now > trialExpiry) {
+                call.reject("ERR_EXPIRED");
+                return;
+            }
+
+            prefs.edit().putLong("last_seen_time", now).apply();
+
+            JSObject ret = new JSObject();
+            ret.put("isValid", true);
+            ret.put("expiry", trialExpiry);
+            ret.put("isTrial", true);
+            ret.put("key", "AQSATI_TRIAL_KEY");
+            call.resolve(ret);
             return;
         }
+
         if (now > expiry) {
             call.reject("ERR_EXPIRED");
             return;
@@ -185,6 +218,7 @@ public class LicensePlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("isValid", true);
         ret.put("expiry", expiry);
+        ret.put("isTrial", false);
         ret.put("key", key);
         call.resolve(ret);
     }

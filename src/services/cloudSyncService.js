@@ -56,70 +56,9 @@ export const notifySyncStatus = (status, detail = {}) => {
 export const cloudSyncService = {
   /**
    * تفعيل الاستماع للمزامنة التلقائية اللحظية
-   * يتم استدعاؤها عند بدء تشغيل التطبيق
-   */
   initAutoSyncListener() {
-    if (typeof window === 'undefined' || autoSyncInitialized) return;
-    autoSyncInitialized = true;
-
-    // 1. عند حدوث أي عملية (إضافة عميل، عقد، سداد قسط، تعديل، حذف): حفظ ومزامنة فورية (100ms)
-    window.addEventListener(DATA_CHANGED_EVENT, (e) => {
-      if (isImportingCloud) return;
-      this.triggerAutoSync(null, 100);
-    });
-
-    // 2. عند عودة الاتصال بالإنترنت: رفع المعاملات فوراً
-    window.addEventListener('online', () => {
-      this.triggerAutoSync(null, 0);
-    });
-
-    // 3. عند الرجوع للتطبيق/التبويب أو التركيز عليه: فحص السحابة لجلب أي تعديل من متصفح آخر
-    if (typeof document !== 'undefined') {
-      const checkRemoteUpdates = () => {
-        const userPhone = authService.getCurrentUser()?.phone;
-        if (userPhone && !isImportingCloud && !isSyncInProgress) {
-          this.syncWithCloud(userPhone).catch((err) => {
-            console.warn('[AutoSync] Focus sync check note:', err);
-          });
-        }
-      };
-
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          checkRemoteUpdates();
-        }
-      });
-
-      window.addEventListener('focus', checkRemoteUpdates);
-    }
-
-    // 4. عند إغلاق التطبيق أو إخفاء الشاشة: رفع فوري لأي معاملة معلقة
-    if (typeof window !== 'undefined') {
-      const flushPendingSync = () => {
-        const userPhone = authService.getCurrentUser()?.phone;
-        const hasPendingSync = localStorage.getItem('fazatak_has_pending_cloud_sync') === 'true';
-        if (userPhone && hasPendingSync && !isImportingCloud) {
-          if (autoSyncTimeout) {
-            clearTimeout(autoSyncTimeout);
-            autoSyncTimeout = null;
-          }
-          this.backupUserToCloud(userPhone).catch(err => {
-            console.warn('[AutoSync] Flush on exit note:', err);
-          });
-        }
-      };
-      window.addEventListener('beforeunload', flushPendingSync);
-      window.addEventListener('pagehide', flushPendingSync);
-      if (typeof document !== 'undefined') {
-        document.addEventListener('visibilitychange', () => {
-          if (document.visibilityState === 'hidden') {
-            flushPendingSync();
-          }
-        });
-      }
-    }
-
-    console.log('⚡ [AutoSync] Ultra-fast background real-time auto-sync activated.');
+    // Disabled: Application is 100% Local-Only / Offline
+    return;
   },
 
   /**
@@ -319,7 +258,7 @@ export const cloudSyncService = {
       // حفظ نسخة تاريخية في fazatak_backups إن وجدت معاملات فعلية
       if (localBusinessCount > 0) {
         supabase.from('fazatak_backups').insert([{
-          file_name: `CloudSync_${phone}_${Date.now()}.json`,
+          file_name: `أقساطي_CloudSync_${phone}_${Date.now()}.json`,
           version: '2.0-offline',
           records_count: totalRecordsCount,
           tables_count: Object.keys(payload.tables || {}).length,

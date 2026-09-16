@@ -3,7 +3,6 @@ import Dashboard from './screens/Dashboard';
 import AuthGate from './components/AuthGate';
 import WelcomeOnboarding, { useOnboarding } from './components/WelcomeOnboarding';
 import { authService } from './services/authService';
-import { cloudSyncService } from './services/cloudSyncService';
 import licenseService from './services/license';
 import { settingsService } from './services/database';
 import { Capacitor } from '@capacitor/core';
@@ -37,7 +36,7 @@ const AppLockScreen = ({ onUnlock }) => {
   return (
     <div className="premium-auth fixed inset-0 z-[99999] flex items-center justify-center p-4" dir="rtl">
       <div className="auth-card w-full max-w-sm rounded-3xl border border-slate-800 p-6 text-center shadow-2xl">
-        <img src="/logo-mark.svg" alt="شعار أقساطي" className="mx-auto mb-4 h-16 w-16" />
+        <img src="/logo-aqsati.png" alt="شعار أقساطي" className="mx-auto mb-4 h-20 w-20 object-contain rounded-2xl shadow-lg" />
         <h1 className="text-2xl font-black text-white">التطبيق مقفل</h1>
         <p className="mt-2 text-sm text-slate-400">أدخل رمز القفل للوصول إلى بياناتك</p>
         <form onSubmit={handleUnlock} className="mt-6 space-y-4">
@@ -68,27 +67,16 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [isLicensed, setIsLicensed] = useState(false);
   const [isExpired, setIsExpired] = useState(false);
+  const [isTrial, setIsTrial] = useState(false);
   const [expiry, setExpiry] = useState(null);
   const [isAppLocked, setIsAppLocked] = useState(false);
-  const [decryptionKey, setDecryptionKey] = useState('FAZATAK_SECURE_KEY');
+  const [decryptionKey, setDecryptionKey] = useState('AQSATI_SECURE_KEY');
   const { showOnboarding, completeOnboarding } = useOnboarding();
 
   useEffect(() => {
     checkAppLicense();
     initScreenPrivacy();
-    cloudSyncService.initAutoSyncListener();
   }, []);
-
-  useEffect(() => {
-    if (!isLicensed) return;
-
-    // فحص مزامنة التحديثات في الخلفية عند فتح التطبيق
-    if (currentUser?.phone) {
-      cloudSyncService.syncWithCloud(currentUser.phone).catch((err) => {
-        console.warn('Background sync check note:', err);
-      });
-    }
-  }, [isLicensed, currentUser]);
 
   useEffect(() => {
     if (!isLicensed || !currentUser?.phone) return undefined;
@@ -120,69 +108,55 @@ function App() {
 
   const checkAppLicense = async () => {
     try {
-      // 1. التحقق أولاً من جلسة العميل المربوطة برقم الهاتف
-      const user = authService.getCurrentUser();
+      const deviceId = await licenseService.getDeviceId();
+      const status = await licenseService.checkLicenseStatus();
 
-      if (user && user.phone) {
+      if (status && status.isValid) {
+        const user = await authService.getOrInitAdminUser(deviceId, status.expiry);
         setCurrentUser(user);
         setIsAppLocked(authService.isAppLockEnabled(user.phone));
-        const expiryMs = new Date(user.subscription_expiry).getTime();
-        const hasExpired = expiryMs < Date.now() || user.subscription_status === 'expired';
-
         setIsLicensed(true);
-        setIsExpired(hasExpired);
-        setExpiry(Math.floor(expiryMs / 1000));
-        setDecryptionKey('FAZATAK_SECURE_KEY');
-
-        // فحص واسترجاع ذكي فوري إذا كانت المعاملات غير موجودة محلياً قبل فتح الواجهة
-        try {
-          await cloudSyncService.fullSyncOnLogin(user.phone);
-        } catch (syncErr) {
-          console.warn('Startup sync check note:', syncErr);
-        }
-
-        // تحديث صلاحية الاشتراك في الخلفية إن وجد إنترنت
-        authService.refreshSubscription().then((updated) => {
-          if (updated && updated.subscription_expiry) {
-            setCurrentUser(updated);
-            const updatedExpMs = new Date(updated.subscription_expiry).getTime();
-            setExpiry(Math.floor(updatedExpMs / 1000));
-            const stillExpired = updatedExpMs < Date.now() || updated.subscription_status === 'expired';
-            setIsExpired(stillExpired);
-          }
-        }).catch(() => {});
-
+        setIsExpired(false);
+        setIsTrial(Boolean(status.isTrial));
+        setExpiry(status.expiry || 2147483647);
+        setDecryptionKey(status.key || 'AQSATI_SECURE_KEY');
         return;
       }
 
-      // 2. إذا لم يكن مسجلاً برقم الهاتف، يجب تسجيل الدخول أو إنشاء حساب
       setIsLicensed(false);
       setIsExpired(false);
+      setIsTrial(false);
       setCurrentUser(null);
     } catch (err) {
-      if (err.message === 'ERR_EXPIRED') {
+      if (err?.message && err.message.includes('ERR_EXPIRED')) {
         setIsLicensed(false);
         setIsExpired(true);
       } else {
         setIsLicensed(false);
+        setIsExpired(false);
       }
+      setIsTrial(false);
+      setCurrentUser(null);
     } finally {
-      setTimeout(() => setIsLoading(false), 400);
+      setIsLoading(false);
     }
   };
 
   const handleAuthenticated = async (user) => {
     setCurrentUser(user);
-    const expiryMs = new Date(user.subscription_expiry).getTime();
-    const hasExpired = expiryMs < Date.now() || user.subscription_status === 'expired';
+    const expiryMs = user?.subscription_expiry ? new Date(user.subscription_expiry).getTime() : 2147483647000;
+    const hasExpired = expiryMs < Date.now() || user?.subscription_status === 'expired';
     setExpiry(Math.floor(expiryMs / 1000));
     setIsLicensed(true);
     setIsExpired(hasExpired);
+    setIsTrial(false);
     setIsAppLocked(false);
-    setDecryptionKey('FAZATAK_SECURE_KEY');
+    setDecryptionKey('AQSATI_SECURE_KEY');
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('aqsati_license_data');
+    localStorage.removeItem('fazatak_license_data');
     authService.logout();
     setCurrentUser(null);
     setIsLicensed(false);
@@ -225,6 +199,7 @@ function App() {
       currentUser={currentUser}
       decryptionKey={decryptionKey}
       isExpired={isExpired}
+      isTrial={isTrial}
       expiry={expiry}
       onReActivate={checkAppLicense}
       onLogout={handleLogout}

@@ -1,9 +1,12 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 
 const License = registerPlugin('License');
+const Billing = registerPlugin('Billing');
 const SECRET_SALT = 'NAYEF_FAZATK_2026_SECURITY_SALT';
-const WEB_DEVICE_ID_KEY = 'fazatak_web_device_id';
-const WEB_LICENSE_KEY = 'fazatak_license_data';
+const WEB_DEVICE_ID_KEY = 'aqsati_web_device_id';
+const WEB_LICENSE_KEY = 'aqsati_license_data';
+const WEB_TRIAL_KEY = 'aqsati_trial_data';
+const WEB_BILLING_KEY = 'aqsati_billing_entitlement';
 
 // Helper to hash using crypto.subtle (SHA-256) exactly matching Android / Generator logic
 const generateNumericHash = async (input) => {
@@ -23,13 +26,24 @@ const generateNumericHash = async (input) => {
   }
 };
 
+const getStoredLicenseData = () => {
+  let stored = localStorage.getItem(WEB_LICENSE_KEY);
+  if (!stored) {
+    stored = localStorage.getItem('fazatak_license_data');
+    if (stored) {
+      localStorage.setItem(WEB_LICENSE_KEY, stored);
+    }
+  }
+  return stored;
+};
+
 const getWebDeviceId = () => {
-  let id = localStorage.getItem(WEB_DEVICE_ID_KEY);
+  let id = localStorage.getItem(WEB_DEVICE_ID_KEY) || localStorage.getItem('fazatak_web_device_id');
   if (!id || id.length !== 6) {
     // Generate stable 6-digit numeric device ID
     id = String(Math.floor(100000 + Math.random() * 900000));
-    localStorage.setItem(WEB_DEVICE_ID_KEY, id);
   }
+  localStorage.setItem(WEB_DEVICE_ID_KEY, id);
   return id;
 };
 
@@ -123,79 +137,267 @@ export const licenseService = {
     };
 
     localStorage.setItem(WEB_LICENSE_KEY, JSON.stringify(licensePayload));
-    return { success: true, expiry, key: derivedKey };
+    localStorage.removeItem(WEB_TRIAL_KEY);
+    localStorage.removeItem('fazatak_trial_data');
+    return { success: true, expiry, isTrial: false, key: derivedKey };
   },
 
   /**
-   * Checks the status of the current license
+   * جلب باقات ومنتجات Google Play من المتجر
+   */
+  async getBillingProducts() {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const res = await Billing.getProducts();
+        if (res && res.products && res.products.length > 0) {
+          return res.products;
+        }
+      } catch (err) {
+        console.warn('[licenseService] Native getProducts error, using defaults:', err);
+      }
+    }
+
+    // Default structure matching Play Console configurations (Arabic localized)
+    return [
+      {
+        productId: 'aqsati_30d',
+        title: 'اشتراك شهري (30 يوماً)',
+        description: 'وصول كامل لكافة الميزات المحاسبية وإدارة الأقساط',
+        productType: 'subs',
+        formattedPrice: 'حسب المتجر',
+        billingPeriod: 'P1M'
+      },
+      {
+        productId: 'aqsati_90d',
+        title: 'اشتراك ربع سنوي (90 يوماً)',
+        description: 'وصول كامل لـ 3 أشهر مع حفظ البيانات محلياً',
+        productType: 'subs',
+        formattedPrice: 'حسب المتجر',
+        billingPeriod: 'P3M'
+      },
+      {
+        productId: 'aqsati_180d',
+        title: 'اشتراك نصف سنوي (180 يوماً)',
+        description: 'وصول كامل لـ 6 أشهر مع كافة التقارير والنسخ',
+        productType: 'subs',
+        formattedPrice: 'حسب المتجر',
+        billingPeriod: 'P6M'
+      },
+      {
+        productId: 'aqsati_365d',
+        title: 'اشتراك سنوي (365 يوماً)',
+        description: 'وصول كامل لعام كامل مع أعلى توفير وموثوقية',
+        productType: 'subs',
+        formattedPrice: 'حسب المتجر',
+        billingPeriod: 'P1Y'
+      },
+      {
+        productId: 'aqsati_lifetime',
+        title: 'ترخيص دائم مدى الحياة',
+        description: 'شراء لمرة واحدة بدون أي اشتراكات متكررة للأبد',
+        productType: 'inapp',
+        formattedPrice: 'حسب المتجر',
+        isLifetime: true
+      }
+    ];
+  },
+
+  /**
+   * تنفيذ شراء منتج أو اشتراك عبر Google Play
+   */
+  async purchaseBillingProduct({ productId, offerToken }) {
+    if (!productId) throw new Error('ERR_MISSING_PRODUCT');
+
+    if (Capacitor.isNativePlatform()) {
+      return await Billing.purchase({ productId, offerToken });
+    }
+
+    // Web mock for testing/dev environments
+    const now = Math.floor(Date.now() / 1000);
+    const isLifetime = productId.includes('lifetime');
+    let expiryTime = isLifetime ? 2147483647 : (now + 30 * 24 * 60 * 60);
+    if (productId.includes('90d')) expiryTime = now + 90 * 24 * 60 * 60;
+    if (productId.includes('180d')) expiryTime = now + 180 * 24 * 60 * 60;
+    if (productId.includes('365d')) expiryTime = now + 365 * 24 * 60 * 60;
+
+    const mockEntitlement = {
+      isValid: true,
+      state: isLifetime ? 'LIFETIME' : 'ACTIVE',
+      productId,
+      expiryTime,
+      isLifetime,
+      purchaseToken: 'web_mock_token_' + Date.now()
+    };
+    localStorage.setItem(WEB_BILLING_KEY, JSON.stringify(mockEntitlement));
+    return mockEntitlement;
+  },
+
+  /**
+   * استعادة المشتريات السابقة من Google Play
+   */
+  async restoreBillingPurchases() {
+    if (Capacitor.isNativePlatform()) {
+      return await Billing.restorePurchases();
+    }
+
+    const stored = localStorage.getItem(WEB_BILLING_KEY);
+    if (stored) {
+      return JSON.parse(stored);
+    }
+    return { foundActivePurchase: false };
+  },
+
+  /**
+   * جلب الاستحقاق الحالي مباشرة
+   */
+  async getBillingEntitlement() {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        return await Billing.getEntitlement();
+      } catch (err) {
+        console.warn('[licenseService] getEntitlement native failed:', err);
+      }
+    }
+
+    const stored = localStorage.getItem(WEB_BILLING_KEY);
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch {}
+    }
+    return { isValid: false, state: 'NONE' };
+  },
+
+  /**
+   * فتح صفحة إدارة الاشتراكات في متجر Google Play
+   */
+  async openSubscriptionManagement(productId = 'aqsati_subscription') {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        return await Billing.openSubscriptionManagement({ productId });
+      } catch (e) {
+        console.warn('openSubscriptionManagement failed:', e);
+      }
+    }
+    window.open('https://play.google.com/store/account/subscriptions', '_blank');
+  },
+
+  /**
+   * فحص شامل لحالة الترخيص مع الحفاظ التام على الأولوية المنطقية:
+   * Valid Lifetime -> Valid Play Entitlement -> Valid Existing Trial -> Expired/View-Only
    */
   async checkLicenseStatus() {
+    const now = Math.floor(Date.now() / 1000);
+
+    // 1. فحص استحقاق Google Play أولاً (سواء دائم أو اشتراك سارٍ)
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const billingEntitlement = await Billing.getEntitlement();
+        if (billingEntitlement && billingEntitlement.isValid) {
+          const isLifetime = Boolean(billingEntitlement.isLifetime);
+          const expiry = isLifetime ? 2147483647 : (billingEntitlement.expiryTime || 2147483647);
+          return {
+            isValid: true,
+            expiry,
+            isTrial: false,
+            isLifetime,
+            key: 'GOOGLE_PLAY_ACTIVE'
+          };
+        }
+      } catch (e) {
+        console.warn('[licenseService] Billing entitlement check failed, continuing:', e);
+      }
+    } else {
+      const webBillingRaw = localStorage.getItem(WEB_BILLING_KEY);
+      if (webBillingRaw) {
+        try {
+          const webBilling = JSON.parse(webBillingRaw);
+          if (webBilling.isLifetime || (webBilling.expiryTime && webBilling.expiryTime > now)) {
+            return {
+              isValid: true,
+              expiry: webBilling.isLifetime ? 2147483647 : webBilling.expiryTime,
+              isTrial: false,
+              isLifetime: Boolean(webBilling.isLifetime),
+              key: 'GOOGLE_PLAY_ACTIVE'
+            };
+          }
+        } catch {}
+      }
+    }
+
+    // 2. فحص الترخيص الأصلي القديم (Legacy License)
     if (Capacitor.isNativePlatform()) {
       try {
         const status = await License.checkLicense();
-        return status;
+        if (status && status.isValid) {
+          return {
+            isValid: true,
+            expiry: status.expiry,
+            isTrial: Boolean(status.isTrial),
+            key: status.key || 'AQSATI_SECURE_KEY'
+          };
+        }
       } catch (err) {
         if (err.message && err.message.includes('ERR_EXPIRED')) {
           throw new Error('ERR_EXPIRED', { cause: err });
         }
-        // Fall back to web storage if native fails
       }
     }
 
-    // 1. First check if a user is logged in via Phone Account
+    // 3. فحص الـ Web Storage للترخيص القديم
     try {
-      const authRaw = localStorage.getItem('fazatak_auth_user');
-      if (authRaw) {
-        const user = JSON.parse(authRaw);
-        if (user && user.subscription_expiry) {
-          const expiryMs = new Date(user.subscription_expiry).getTime();
-          const isExpired = expiryMs < Date.now() || user.subscription_status === 'expired';
-
-          if (isExpired) {
-            throw new Error('ERR_EXPIRED');
-          }
-
-          return {
-            isValid: true,
-            expiry: Math.floor(expiryMs / 1000),
-            key: 'FAZATAK_SECURE_KEY',
-            user
-          };
+      const stored = getStoredLicenseData();
+      if (stored) {
+        const data = JSON.parse(stored);
+        if (!data.expiry || now > data.expiry) {
+          throw new Error('ERR_EXPIRED');
         }
-      }
-    } catch (err) {
-      if (err.message && err.message.includes('ERR_EXPIRED')) {
-        throw err;
-      }
-    }
 
-    // 2. Fall back to legacy web license status check
-    try {
-      const stored = localStorage.getItem(WEB_LICENSE_KEY);
-      if (!stored) {
-        return { isValid: false, error: 'ERR_NO_LICENSE' };
+        data.lastSeen = now;
+        localStorage.setItem(WEB_LICENSE_KEY, JSON.stringify(data));
+
+        return {
+          isValid: true,
+          expiry: data.expiry,
+          isTrial: false,
+          key: data.key || 'AQSATI_SECURE_KEY'
+        };
       }
 
-      const data = JSON.parse(stored);
-      const now = Math.floor(Date.now() / 1000);
+      // 4. إذا لم يكن هناك ترخيص مسجل، نمنح المستخدم الجديد فترة سماح مجانية لمدة شهر (30 يوماً)
+      let trialRaw = localStorage.getItem(WEB_TRIAL_KEY) || localStorage.getItem('fazatak_trial_data');
+      let trialData;
+      if (!trialRaw) {
+        const trialExpiry = now + (30 * 24 * 60 * 60); // 30 يوماً
+        trialData = {
+          start: now,
+          expiry: trialExpiry,
+          isTrial: true,
+          lastSeen: now
+        };
+        localStorage.setItem(WEB_TRIAL_KEY, JSON.stringify(trialData));
+      } else {
+        trialData = JSON.parse(trialRaw);
+      }
 
-      if (!data.expiry || now > data.expiry) {
+      if (now > trialData.expiry) {
         throw new Error('ERR_EXPIRED');
       }
 
-      data.lastSeen = now;
-      localStorage.setItem(WEB_LICENSE_KEY, JSON.stringify(data));
+      trialData.lastSeen = now;
+      localStorage.setItem(WEB_TRIAL_KEY, JSON.stringify(trialData));
 
       return {
         isValid: true,
-        expiry: data.expiry,
-        key: data.key || 'DUMMY_KEY'
+        expiry: trialData.expiry,
+        isTrial: true,
+        key: 'AQSATI_TRIAL_KEY'
       };
     } catch (err) {
       if (err.message && err.message.includes('ERR_EXPIRED')) {
         throw err;
       }
-      return { isValid: false, error: err.message };
+      return { isValid: false, error: err.message || 'ERR_NO_LICENSE' };
     }
   }
 };

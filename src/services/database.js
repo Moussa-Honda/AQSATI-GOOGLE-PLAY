@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
-import { notifyDataChanged } from './dataEvents';
+import { notifyDataChanged } from './dataEvents.js';
 
 const DB_NAME = 'fazatak_db';
 const LEGACY_WHATSAPP_TEMPLATE = 'مرحباً [الاسم]، نذكركم بموعد دفع القسط بمبلغ [المبلغ] ريال بتاريخ [التاريخ]. شكراً لتعاونكم.';
@@ -470,6 +470,25 @@ const createTables = async () => {
       ('stagnancy_threshold_days', '90'),
       ('due_alerts_enabled', 'false');
 
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS app_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      pin_hash TEXT,
+      role TEXT DEFAULT 'admin',
+      is_active INTEGER DEFAULT 1,
+      app_lock_enabled INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      last_login_at DATETIME
+    );
+
     CREATE TABLE IF NOT EXISTS portfolios (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -485,6 +504,8 @@ const createTables = async () => {
       description TEXT,
       date DATE DEFAULT CURRENT_DATE,
       entry_type TEXT NOT NULL DEFAULT 'expense',
+      payment_method TEXT DEFAULT 'cash',
+      notes TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE
     );
@@ -495,6 +516,14 @@ const createTables = async () => {
   // Existing installations do not have the operation type column yet.
   try {
     await db.execute(`ALTER TABLE portfolio_expenses ADD COLUMN entry_type TEXT NOT NULL DEFAULT 'expense'`);
+  } catch {}
+
+  try {
+    await db.execute(`ALTER TABLE portfolio_expenses ADD COLUMN payment_method TEXT DEFAULT 'cash'`);
+  } catch {}
+
+  try {
+    await db.execute(`ALTER TABLE portfolio_expenses ADD COLUMN notes TEXT`);
   } catch {}
 
   try {
@@ -550,12 +579,97 @@ const createTables = async () => {
     CREATE INDEX IF NOT EXISTS idx_customers_manager_deleted_status ON customers(manager_id, is_deleted, status);
     CREATE INDEX IF NOT EXISTS idx_customers_deleted_manager ON customers(deleted_manager_id);
     CREATE INDEX IF NOT EXISTS idx_customers_manual_overdue ON customers(is_manually_flagged_as_overdue);
+    CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
     CREATE INDEX IF NOT EXISTS idx_contracts_customer_status ON contracts(customer_id, status);
+    CREATE INDEX IF NOT EXISTS idx_contracts_creation ON contracts(creation_date);
     CREATE INDEX IF NOT EXISTS idx_installments_contract_status_due ON installments(contract_id, status, due_date);
     CREATE INDEX IF NOT EXISTS idx_installments_status_due ON installments(status, due_date);
+    CREATE INDEX IF NOT EXISTS idx_installments_due_date ON installments(due_date);
     CREATE INDEX IF NOT EXISTS idx_customer_month_statuses_month_customer ON customer_month_statuses(month_key, customer_id);
     CREATE INDEX IF NOT EXISTS idx_installment_postponements_installment_status ON installment_postponements(installment_id, status);
+    CREATE INDEX IF NOT EXISTS idx_app_users_phone ON app_users(phone);
+    CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);
   `);
+
+  await runMigrations(db);
+};
+
+// ─── نظام إصدارات وترحيل قاعدة البيانات (Database Versioning & Migrations) ────
+const runMigrations = async (database) => {
+  try {
+    const appliedResult = await database.query('SELECT version FROM schema_migrations');
+    const appliedVersions = new Set((appliedResult.values || []).map((r) => Number(r.version)));
+
+    const migrations = [
+      {
+        version: 1,
+        name: 'v1_initial_schema',
+        up: async () => {}
+      },
+      {
+        version: 2,
+        name: 'v2_local_users_and_performance_indexes',
+        up: async (dbInstance) => {
+          // Migration of any legacy user stored in localStorage to app_users
+          if (typeof localStorage !== 'undefined') {
+            try {
+              const rawUser = localStorage.getItem('fazatak_auth_user');
+              if (rawUser) {
+                const legacyUser = JSON.parse(rawUser);
+                if (legacyUser?.phone && legacyUser?.name) {
+                  const cleanPhone = String(legacyUser.phone).trim();
+                  const existing = await dbInstance.query('SELECT id FROM app_users WHERE phone = ? LIMIT 1', [cleanPhone]);
+                  if (!existing.values || existing.values.length === 0) {
+                    const passHash = legacyUser.password_hash || 'LOCAL_OFFLINE_USER_HASH';
+                    const pinHash = legacyUser.pin_hash || null;
+                    await dbInstance.run(
+                      'INSERT OR IGNORE INTO app_users (phone, name, password_hash, pin_hash, role, is_active, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)',
+                      [cleanPhone, legacyUser.name, passHash, pinHash, 'admin', legacyUser.created_at || new Date().toISOString(), new Date().toISOString()]
+                    );
+                    console.log('[Migrations] Successfully migrated legacy local user to app_users SQLite table.');
+                  }
+                }
+              }
+            } catch (mErr) {
+              console.warn('[Migrations] Note migrating legacy user:', mErr);
+            }
+          }
+        }
+      }
+    ];
+
+    for (const m of migrations) {
+      if (!appliedVersions.has(m.version)) {
+        console.log(`[Migrations] Applying migration v${m.version}: ${m.name}`);
+        await m.up(database);
+        await database.run(
+          'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+          [m.version, m.name]
+        );
+        appliedVersions.add(m.version);
+      }
+    }
+  } catch (migErr) {
+    console.warn('[Migrations] Migration check warning:', migErr);
+  }
+};
+
+export const runInTransaction = async (callback) => {
+  const database = await getDatabase();
+  await database.execute('BEGIN TRANSACTION;');
+  try {
+    const result = await callback(database);
+    await database.execute('COMMIT;');
+    if (isWebStore) await persistWebStore();
+    return result;
+  } catch (err) {
+    try {
+      await database.execute('ROLLBACK;');
+    } catch (rbErr) {
+      console.warn('[DB] Transaction rollback error:', rbErr);
+    }
+    throw err;
+  }
 };
 
 export const getDatabase = async () => {
@@ -564,6 +678,64 @@ export const getDatabase = async () => {
     await initDatabase();
   }
   return db;
+};
+
+// Local App Users Management (Local-First Authentication)
+export const userService = {
+  async getByPhone(phone) {
+    const database = await getDatabase();
+    const cleanPhone = String(phone || '').trim();
+    const result = await database.query('SELECT * FROM app_users WHERE phone = ? LIMIT 1', [cleanPhone]);
+    return result.values?.[0] || null;
+  },
+
+  async getFirstUser() {
+    const database = await getDatabase();
+    const result = await database.query('SELECT * FROM app_users WHERE is_active = 1 ORDER BY id ASC LIMIT 1');
+    return result.values?.[0] || null;
+  },
+
+  async count() {
+    const database = await getDatabase();
+    const result = await database.query('SELECT COUNT(*) as count FROM app_users WHERE is_active = 1');
+    return result.values?.[0]?.count || 0;
+  },
+
+  async create({ phone, name, password_hash, pin_hash, role = 'admin' }) {
+    const database = await getDatabase();
+    const cleanPhone = String(phone || '').trim();
+    const cleanName = String(name || '').trim();
+    const sql = `INSERT INTO app_users (phone, name, password_hash, pin_hash, role, is_active, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`;
+    const result = await database.run(sql, [cleanPhone, cleanName, password_hash, pin_hash || null, role]);
+    const id = result.changes?.lastId || result.lastId;
+    notifyDataChanged({ scope: 'users', action: 'create', id });
+    return { id, phone: cleanPhone, name: cleanName, role };
+  },
+
+  async update(phone, fields) {
+    const database = await getDatabase();
+    const cleanPhone = String(phone || '').trim();
+    const allowed = ['name', 'password_hash', 'pin_hash', 'app_lock_enabled', 'last_login_at', 'role', 'is_active'];
+    const keys = Object.keys(fields).filter((k) => allowed.includes(k));
+    if (keys.length === 0) return;
+    const setClause = keys.map((k) => `"${k}" = ?`).join(', ');
+    const values = [...keys.map((k) => fields[k]), cleanPhone];
+    await database.run(`UPDATE app_users SET ${setClause} WHERE phone = ?`, values);
+    notifyDataChanged({ scope: 'users', action: 'update', phone: cleanPhone });
+  },
+
+  async delete(phone) {
+    const database = await getDatabase();
+    const cleanPhone = String(phone || '').trim();
+    await database.run('DELETE FROM app_users WHERE phone = ?', [cleanPhone]);
+    notifyDataChanged({ scope: 'users', action: 'delete', phone: cleanPhone });
+  },
+
+  async getAll() {
+    const database = await getDatabase();
+    const result = await database.query('SELECT id, phone, name, role, app_lock_enabled, created_at, last_login_at FROM app_users ORDER BY id ASC');
+    return result.values || [];
+  }
 };
 
 // Customer Operations
@@ -1663,7 +1835,7 @@ export const installmentService = {
     notifyDataChanged({ scope: 'installments', action: 'undo-pay', id, contractId: installment.contract_id });
   },
 
-  async getUpcoming(rangeDays = 7) {
+  async getDueUpcoming(rangeDays = 7) {
     const database = await getDatabase();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1678,7 +1850,6 @@ export const installmentService = {
       WHERE i.status = 'pending' 
        AND c.status = 'active'
        AND (cu.is_deleted IS NULL OR cu.is_deleted = 0)
-       AND (cu.manager_id IS NULL OR cu.manager_id = 0 OR cu.manager_id = '')
        AND (cu.deleted_manager_id IS NULL OR cu.deleted_manager_id = 0)
        AND (m.id IS NULL OR m.is_deleted IS NULL OR m.is_deleted = 0)
        AND i.due_date BETWEEN ? AND ?
@@ -1700,7 +1871,6 @@ export const installmentService = {
       WHERE i.status = 'pending' 
        AND c.status = 'active'
        AND (cu.is_deleted IS NULL OR cu.is_deleted = 0)
-       AND (cu.manager_id IS NULL OR cu.manager_id = 0 OR cu.manager_id = '')
        AND (cu.deleted_manager_id IS NULL OR cu.deleted_manager_id = 0)
        AND (m.id IS NULL OR m.is_deleted IS NULL OR m.is_deleted = 0)
        AND i.due_date < ?
@@ -1712,12 +1882,10 @@ export const installmentService = {
 
   async getHomeAlerts(days = 3) {
     const database = await getDatabase();
-    const overdueThreshold = parseInt(await settingsService.get('overdue_threshold_days'), 10) || 30;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayText = formatLocalDate(today);
     const horizonText = formatLocalDate(addLocalDays(today, Math.max(1, parseInt(days, 10) || 3)));
-    const debtorCutoffText = formatLocalDate(addLocalDays(today, -overdueThreshold));
 
     const sql = `
       SELECT i.*, c.title as contract_title, cu.id as customer_id, cu.name as customer_name, cu.phone as customer_phone, m.name as manager_name
@@ -1727,25 +1895,14 @@ export const installmentService = {
       LEFT JOIN managers m ON cu.manager_id = m.id
       WHERE i.status = 'pending'
       AND c.status = 'active'
-       AND (cu.is_deleted IS NULL OR cu.is_deleted = 0)
-       AND (cu.manager_id IS NULL OR cu.manager_id = 0 OR cu.manager_id = '')
-       AND (cu.deleted_manager_id IS NULL OR cu.deleted_manager_id = 0)
-       AND (m.id IS NULL OR m.is_deleted IS NULL OR m.is_deleted = 0)
-       AND (cu.is_manually_flagged_as_overdue IS NULL OR cu.is_manually_flagged_as_overdue = 0)
-      AND NOT EXISTS (
-        SELECT 1
-        FROM installments oi
-        JOIN contracts oc ON oi.contract_id = oc.id
-        WHERE oc.customer_id = cu.id
-        AND oc.status = 'active'
-        AND oi.status = 'pending'
-        AND oi.due_date < ?
-      )
+      AND (cu.is_deleted IS NULL OR cu.is_deleted = 0)
+      AND (cu.deleted_manager_id IS NULL OR cu.deleted_manager_id = 0)
+      AND (m.id IS NULL OR m.is_deleted IS NULL OR m.is_deleted = 0)
       AND i.due_date <= ?
       ORDER BY i.due_date ASC, i.id ASC
     `;
 
-    const result = await database.query(sql, [debtorCutoffText, horizonText]);
+    const result = await database.query(sql, [horizonText]);
     const rows = result.values || [];
     const alerts = {
       late: [],
@@ -1756,7 +1913,8 @@ export const installmentService = {
 
     rows.forEach((item) => {
       const remaining = Math.max(0, (item.amount || 0) - (item.actual_paid || 0));
-      alerts.totalAmount += remaining || item.amount || 0;
+      if (remaining <= 0) return;
+      alerts.totalAmount += remaining;
 
       if (item.due_date < todayText) {
         alerts.late.push(item);
@@ -1769,7 +1927,7 @@ export const installmentService = {
 
     return {
       ...alerts,
-      total: rows.length
+      total: alerts.late.length + alerts.today.length + alerts.upcoming.length
     };
   },
 
@@ -1801,6 +1959,7 @@ export const installmentService = {
       WHERE i.status = 'pending'
         AND c.status = 'active'
         AND (cu.is_deleted IS NULL OR cu.is_deleted = 0)
+        AND (cu.deleted_manager_id IS NULL OR cu.deleted_manager_id = 0)
         AND (cu.status IS NULL OR cu.status = 'active')
         AND (m.id IS NULL OR m.is_deleted IS NULL OR m.is_deleted = 0)
         AND i.due_date <= ?
@@ -2079,10 +2238,30 @@ export const portfolioService = {
       `UPDATE portfolios SET capital = COALESCE(capital, 0) + ? WHERE id = ?`,
       [value, id]
     );
+
+    const paymentMethod = receipt.payment_method === 'cash' ? 'cash' : 'transfer';
+    const notes = receipt.notes ? String(receipt.notes).trim() : '';
+    const methodArabic = paymentMethod === 'transfer' ? 'تحويل' : 'نقدي';
+
+    let desc = receipt.description;
+    if (!desc) {
+      desc = `سند قبض (${methodArabic})`;
+      if (notes) {
+        desc += ` - ${notes}`;
+      }
+    }
+
     const receiptResult = await database.run(
-      `INSERT INTO portfolio_expenses (portfolio_id, amount, description, date, entry_type)
-       VALUES (?, ?, ?, ?, 'receipt')`,
-      [id, value, receipt.description || 'سند قبض - إضافة مبلغ', receipt.date || new Date().toISOString().split('T')[0]]
+      `INSERT INTO portfolio_expenses (portfolio_id, amount, description, date, entry_type, payment_method, notes)
+       VALUES (?, ?, ?, ?, 'receipt', ?, ?)`,
+      [
+        id, 
+        value, 
+        desc, 
+        receipt.date || new Date().toISOString().split('T')[0],
+        paymentMethod,
+        notes || null
+      ]
     );
     const receiptId = receiptResult.changes?.lastId || receiptResult.lastId;
     notifyDataChanged({ scope: 'portfolios', action: 'add-capital', id, amount: value, receiptId });
@@ -2166,9 +2345,16 @@ export const portfolioExpenseService = {
 
     await database.run(
       `UPDATE portfolio_expenses
-       SET amount = ?, description = ?, date = ?
+       SET amount = ?, description = ?, date = ?, payment_method = COALESCE(?, payment_method), notes = COALESCE(?, notes)
        WHERE id = ?`,
-      [value, expense.description || null, expense.date || new Date().toISOString().split('T')[0], id]
+      [
+        value, 
+        expense.description || null, 
+        expense.date || new Date().toISOString().split('T')[0], 
+        expense.payment_method || null,
+        expense.notes !== undefined ? expense.notes : null,
+        id
+      ]
     );
     notifyDataChanged({
       scope: 'portfolio_expenses',
@@ -2330,11 +2516,10 @@ export const managerService = {
             LEFT JOIN contracts c ON cu.id = c.customer_id
             LEFT JOIN installments i ON c.id = i.contract_id
             WHERE cu.manager_id = m.id 
-            AND c.status = 'active'
             AND cu.status != 'archived'
             AND (
               cu.is_manually_flagged_as_overdue = 1
-               OR (i.status = 'pending' AND i.due_date < ?)
+               OR (c.status = 'active' AND i.status = 'pending' AND i.due_date < ?)
             )
             AND (cu.is_deleted IS NULL OR cu.is_deleted = 0)
           ) as overdue_customer_count,
@@ -2361,12 +2546,12 @@ export const managerService = {
             WHERE cu.manager_id = m.id
             AND c.status = 'active'
             AND cu.status != 'archived'
-            AND EXISTS (
-              SELECT 1 FROM installments i 
-              WHERE i.contract_id = c.id 
-              AND (
-                cu.is_manually_flagged_as_overdue = 1
-                 OR (i.status = 'pending' AND i.due_date < ?)
+            AND (
+              cu.is_manually_flagged_as_overdue = 1
+              OR EXISTS (
+                SELECT 1 FROM installments i 
+                WHERE i.contract_id = c.id 
+                AND i.status = 'pending' AND i.due_date < ?
               )
             )
             AND (cu.is_deleted IS NULL OR cu.is_deleted = 0)
@@ -2379,12 +2564,12 @@ export const managerService = {
             WHERE cu.manager_id = m.id
             AND c.status = 'active'
             AND cu.status != 'archived'
-            AND EXISTS (
-              SELECT 1 FROM installments i2
-              WHERE i2.contract_id = c.id
-              AND (
-                cu.is_manually_flagged_as_overdue = 1
-                 OR (i2.status = 'pending' AND i2.due_date < ?)
+            AND (
+              cu.is_manually_flagged_as_overdue = 1
+              OR EXISTS (
+                SELECT 1 FROM installments i2
+                WHERE i2.contract_id = c.id
+                AND i2.status = 'pending' AND i2.due_date < ?
               )
             )
             AND (cu.is_deleted IS NULL OR cu.is_deleted = 0)
@@ -2396,11 +2581,10 @@ export const managerService = {
           LEFT JOIN contracts c ON cu.id = c.customer_id
           LEFT JOIN installments i ON c.id = i.contract_id
           WHERE cu.manager_id = m.id 
-          AND c.status = 'active'
           AND cu.status != 'archived'
           AND (
             cu.is_manually_flagged_as_overdue = 1
-             OR (i.status = 'pending' AND i.due_date < ?)
+             OR (c.status = 'active' AND i.status = 'pending' AND i.due_date < ?)
           )
           AND (cu.is_deleted IS NULL OR cu.is_deleted = 0)
         ) > 0

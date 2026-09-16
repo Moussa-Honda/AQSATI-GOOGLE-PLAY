@@ -6,14 +6,10 @@ import licenseService from '../services/license';
 import { PrivacyScreen } from '@capacitor-community/privacy-screen';
 import { Clipboard } from '@capacitor/clipboard';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
-import { cloudSyncService, SYNC_STATUS_EVENT, LAST_SYNC_KEY } from '../services/cloudSyncService';
 import { googleDriveService } from '../services/googleDriveService';
 import { importData, formatDate, formatFileSize } from '../services/backupService';
 import { notifyDataChanged } from '../services/dataEvents';
 import { authService } from '../services/authService';
-
-const SUPPORT_PHONE_DISPLAY = '+966556854162';
-const SUPPORT_WHATSAPP_PHONE = '966556854162';
 
 const ToggleItem = ({ title, description, value, onToggle, icon, disabled = false }) => (
   <div className="settings-toggle-item border-b border-slate-700 last:border-0">
@@ -82,12 +78,20 @@ const PdfMarkEditor = ({ label, image, text, error, onFileChange, onClear, onTex
   </div>
 );
 
-const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, isReadOnly = false, onRenewalRequest }) => {
-  const [passwordForm, setPasswordForm] = useState({ current: '', next: '', confirm: '' });
-  const [passwordLoading, setPasswordLoading] = useState(false);
-  const [passwordMessage, setPasswordMessage] = useState('');
-  const [passwordError, setPasswordError] = useState('');
+const formatSubscriptionExpiry = (expiryVal) => {
+  if (!expiryVal) return '-';
+  const d = new Date(expiryVal);
+  if (isNaN(d.getTime())) return String(expiryVal);
+  if (d.getFullYear() > 2090) return 'تفعيل دائم (مدى الحياة)';
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, isReadOnly = false, onRenewalRequest, isTrial: isTrialProp = false }) => {
   const [appLockEnabled, setAppLockEnabled] = useState(() => authService.isAppLockEnabled(currentUser?.phone));
+  const [isTrial, setIsTrial] = useState(isTrialProp);
   const [appLockCurrentPin, setAppLockCurrentPin] = useState('');
   const [appLockPin, setAppLockPin] = useState('');
   const [appLockConfirm, setAppLockConfirm] = useState('');
@@ -160,27 +164,6 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
     }
   };
 
-  const [syncStatusText, setSyncStatusText] = useState('محفوظ مع السحابة تلقائياً ✓');
-  const [isSyncingLive, setIsSyncingLive] = useState(false);
-
-  useEffect(() => {
-    const handleSyncEvent = (e) => {
-      const { status } = e.detail || {};
-      if (status === 'syncing' || status === 'pending') {
-        setIsSyncingLive(true);
-        setSyncStatusText('جاري الحفظ التلقائي في السحابة...');
-      } else if (status === 'synced') {
-        setIsSyncingLive(false);
-        setSyncStatusText('تم الحفظ التلقائي في السحابة بنجاح ✓');
-      } else if (status === 'error') {
-        setIsSyncingLive(false);
-        setSyncStatusText('بانتظار اتصال الإنترنت للمزامنة...');
-      }
-    };
-
-    window.addEventListener(SYNC_STATUS_EVENT, handleSyncEvent);
-    return () => window.removeEventListener(SYNC_STATUS_EVENT, handleSyncEvent);
-  }, []);
   const [showCustodySection, setShowCustodySection] = useState(true);
   const [quickPaymentMode, setQuickPaymentMode] = useState(false);
   const [privacyMode, setPrivacyMode] = useState(false);
@@ -279,8 +262,10 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
     try {
       const status = await licenseService.checkLicenseStatus();
       setLicenseExpiry(status?.expiry || null);
+      setIsTrial(Boolean(status?.isTrial));
     } catch {
       setLicenseExpiry(null);
+      setIsTrial(false);
     }
   }
 
@@ -307,9 +292,26 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
     setTimeout(() => setDeviceCopied(false), 2000);
   };
 
-  const handleSupportWhatsApp = () => {
-    const message = `السلام عليكم، أريد تجديد اشتراك تطبيق أقساطي. رقم الجهاز: ${deviceId || ''}`;
-    window.open(`https://wa.me/${SUPPORT_WHATSAPP_PHONE}?text=${encodeURIComponent(message)}`, '_blank');
+  const handleRestorePurchases = async () => {
+    setRenewalLoading(true);
+    setRenewalMessage('');
+    try {
+      const res = await licenseService.restoreBillingPurchases();
+      if (res && (res.isValid || res.foundActivePurchase || res.isLifetime)) {
+        setRenewalMessage('✅ تمت استعادة مشتريات واشتراكات Google Play بنجاح!');
+        onLicenseRenewed?.();
+      } else {
+        setRenewalMessage('ℹ️ لم يتم العثور على أي مشتريات نشطة مرتبطة بحساب Google هذا.');
+      }
+    } catch (err) {
+      setRenewalMessage('❌ تعذر استعادة المشتريات: ' + (err?.message || 'خطأ في الاتصال'));
+    } finally {
+      setRenewalLoading(false);
+    }
+  };
+
+  const handleOpenSubscriptionManagement = async () => {
+    await licenseService.openSubscriptionManagement();
   };
 
   const handleRenewLicense = async (e) => {
@@ -323,6 +325,7 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
       const result = await licenseService.activateLicense(renewalCode.trim());
       if (result.success) {
         setLicenseExpiry(result.expiry);
+        setIsTrial(false);
         setRenewalCode('');
         setRenewalMessage(`تم تجديد الاشتراك بنجاح. تاريخ الانتهاء الجديد: ${formatLicenseExpiry(result.expiry)}`);
         onLicenseRenewed?.(result.key, result.expiry);
@@ -363,28 +366,6 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
       setter(value);
     } finally {
       setUpdatingSetting(null);
-    }
-  };
-
-  const handleChangePassword = async (event) => {
-    event.preventDefault();
-    setPasswordMessage('');
-    setPasswordError('');
-
-    if (passwordForm.next !== passwordForm.confirm) {
-      setPasswordError('كلمة المرور الجديدة وتأكيدها غير متطابقين');
-      return;
-    }
-
-    setPasswordLoading(true);
-    try {
-      const result = await authService.changePassword(passwordForm.current, passwordForm.next);
-      setPasswordMessage(result.message);
-      setPasswordForm({ current: '', next: '', confirm: '' });
-    } catch (error) {
-      setPasswordError(error.message || 'تعذر تغيير كلمة المرور');
-    } finally {
-      setPasswordLoading(false);
     }
   };
 
@@ -521,72 +502,85 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
   return (
     <div className="p-4 space-y-6 overflow-y-auto custom-scrollbar h-full bg-slate-900 pb-20" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}>
       
-      {/* ── Client Account & Cloud Sync Section ── */}
+      {/* ── Client Account & Local License Section ── */}
       {currentUser && (
-        <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-5 border border-emerald-500/30 shadow-lg relative overflow-hidden">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-2xl">
-                👤
+        <div className="bg-gradient-to-br from-slate-800/90 via-slate-850 to-slate-900 rounded-2xl p-4 sm:p-5 border border-emerald-500/30 shadow-xl relative overflow-hidden">
+          {/* Subtle ambient light */}
+          <div className="absolute top-0 right-0 w-36 h-36 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none" />
+
+          {/* Top Row: User Avatar, Info & Logout */}
+          <div className="flex items-center justify-between gap-3 mb-4 relative z-10">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0 shadow-inner">
+                <svg className="w-6 h-6 text-emerald-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                </svg>
               </div>
-              <div>
-                <h3 className="text-base font-bold text-white">{currentUser.name}</h3>
-                <p className="text-emerald-400 font-mono text-xs mt-0.5" dir="ltr">{currentUser.phone}</p>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base font-bold text-white truncate leading-tight">
+                  {currentUser.name || 'مدير النظام'}
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  الحساب الإداري الرئيسي
+                </p>
               </div>
             </div>
+
             {onLogout && (
               <button
                 type="button"
                 onClick={onLogout}
-                className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-xl text-xs font-bold transition-colors"
+                className="shrink-0 px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-xl text-xs font-bold transition-all active:scale-95 whitespace-nowrap"
               >
                 تسجيل الخروج
               </button>
             )}
           </div>
 
-          <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800 space-y-2.5 mb-0 text-xs">
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400">حالة الاشتراك السحابي:</span>
-              <span className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] border ${
+          {/* License Status Box */}
+          <div className="bg-slate-950/70 rounded-xl p-3.5 border border-slate-800/90 space-y-2.5 text-xs relative z-10">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-400 font-medium shrink-0">حالة ترخيص النظام:</span>
+              <span className={`px-2.5 py-1 rounded-full font-bold text-[11px] border whitespace-nowrap text-center ${
                 isReadOnly 
-                  ? 'bg-rose-500/20 text-rose-400 border-rose-500/40' 
-                  : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                  ? 'bg-rose-500/15 text-rose-300 border-rose-500/40' 
+                  : (isTrial || isTrialProp)
+                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+                    : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
               }`}>
                 {isReadOnly 
                   ? 'منتهي (وضع العرض فقط)' 
-                  : currentUser.subscription_status === 'trial' 
-                    ? 'فترة تجريبية سارية (35 يوماً)' 
-                    : 'اشتراك نشط'}
+                  : (isTrial || isTrialProp) 
+                    ? 'فترة سماح مجانية (شهر)' 
+                    : 'ترخيص مفعل ونشط'}
               </span>
             </div>
+
             {currentUser.subscription_expiry && (
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400">تاريخ انتهاء الاشتراك:</span>
-                <span className="text-slate-200 font-mono font-medium">
-                  {new Date(currentUser.subscription_expiry).toLocaleDateString('ar-EG')}
+              <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+                <span className="text-slate-400 font-medium shrink-0">تاريخ انتهاء الترخيص:</span>
+                <span className="text-slate-200 font-mono font-semibold text-xs tracking-wider bg-slate-900/80 px-2 py-0.5 rounded border border-slate-800 shrink-0" dir="ltr">
+                  {formatSubscriptionExpiry(currentUser.subscription_expiry)}
                 </span>
               </div>
             )}
+
             {isReadOnly && (
-              <div className="pt-2 border-t border-slate-800/80 flex gap-2">
+              <div className="pt-2.5 border-t border-slate-800/80 flex gap-2">
                 <button
                   type="button"
                   onClick={onRenewalRequest}
-                  className="flex-1 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
+                  className="flex-1 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
                 >
-                  ⚡ تجديد الاشتراك الآن
+                  ⚡ تجديد الاشتراك عبر Google Play
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    const message = `السلام عليكم، أريد تجديد اشتراك تطبيق أقساطي لرقم الحساب: ${currentUser?.phone || ''}`;
-                    window.open(`https://wa.me/${SUPPORT_WHATSAPP_PHONE}?text=${encodeURIComponent(message)}`, '_blank');
-                  }}
-                  className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs shadow transition-all active:scale-95 cursor-pointer flex items-center gap-1"
+                  onClick={handleRestorePurchases}
+                  disabled={renewalLoading}
+                  className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 rounded-xl font-bold text-xs shadow transition-all active:scale-95 cursor-pointer flex items-center gap-1 shrink-0 disabled:opacity-50"
                 >
-                  <span>💬</span>
-                  <span>واتساب</span>
+                  <span>استعادة المشتريات ↺</span>
                 </button>
               </div>
             )}
@@ -674,44 +668,58 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
             <span className="text-white font-bold text-sm">{formatLicenseExpiry(licenseExpiry)}</span>
           </div>
 
-          <div className="bg-emerald-500/10 border border-emerald-500/25 rounded-xl p-4 flex items-center justify-between gap-3">
+          <div className="bg-emerald-500/10 border border-emerald-500/25 rounded-xl p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div>
-              <p className="text-white text-sm font-bold">تواصل معنا للتجديد</p>
-              <p className="text-emerald-300 text-sm font-mono mt-1" dir="ltr">{SUPPORT_PHONE_DISPLAY}</p>
+              <p className="text-white text-sm font-bold">إدارة الاشتراك واستعادة المشتريات</p>
+              <p className="text-emerald-300 text-xs mt-1">تتم إدارة الاشتراكات واستعادتها والدفع عبر متجر Google Play بأمان</p>
             </div>
-            <button
-              type="button"
-              onClick={handleSupportWhatsApp}
-              className="h-10 px-4 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-500 transition-colors active:scale-95"
-            >
-              واتساب
-            </button>
+            <div className="flex gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleRestorePurchases}
+                disabled={renewalLoading}
+                className="h-10 px-3.5 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white rounded-xl text-xs font-bold transition-colors active:scale-95 disabled:opacity-50"
+              >
+                {renewalLoading ? 'جاري الفحص...' : 'استعادة المشتريات ↺'}
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenSubscriptionManagement}
+                className="h-10 px-4 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-500 transition-colors active:scale-95"
+              >
+                إدارة الاشتراك في المتجر
+              </button>
+            </div>
           </div>
 
-          <form onSubmit={handleRenewLicense} className="space-y-3">
-            <label className="block text-sm text-slate-400">كود تجديد الاشتراك</label>
-            <input
-              type="tel"
-              value={renewalCode}
-              onChange={(e) => setRenewalCode(e.target.value.replace(/[^0-9٠-٩]/g, ''))}
-              maxLength={9}
-              className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white text-center font-bold tracking-[0.35em] placeholder-slate-500 focus:border-emerald-500 focus:outline-none transition-colors"
-              placeholder="912345678"
-              dir="ltr"
-            />
-            <button
-              type="submit"
-              disabled={renewalLoading || !renewalCode.trim()}
-              className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-500 transition-colors disabled:opacity-50"
-            >
-              {renewalLoading ? 'جاري التجديد...' : 'تفعيل / تجديد الاشتراك'}
-            </button>
-          </form>
+          {!Capacitor.isNativePlatform() && (
+            <>
+              <form onSubmit={handleRenewLicense} className="space-y-3">
+                <label className="block text-sm text-slate-400">كود تجديد الاشتراك للمؤسسات</label>
+                <input
+                  type="tel"
+                  value={renewalCode}
+                  onChange={(e) => setRenewalCode(e.target.value.replace(/[^0-9٠-٩]/g, ''))}
+                  maxLength={9}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white text-center font-bold tracking-[0.35em] placeholder-slate-500 focus:border-emerald-500 focus:outline-none transition-colors"
+                  placeholder="912345678"
+                  dir="ltr"
+                />
+                <button
+                  type="submit"
+                  disabled={renewalLoading || !renewalCode.trim()}
+                  className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-500 transition-colors disabled:opacity-50"
+                >
+                  {renewalLoading ? 'جاري التجديد...' : 'تفعيل / تجديد الاشتراك'}
+                </button>
+              </form>
 
-          {renewalMessage && (
-            <p className="text-xs text-slate-300 leading-5 bg-slate-900/70 border border-slate-700 rounded-xl p-3">
-              {renewalMessage}
-            </p>
+              {renewalMessage && (
+                <p className="text-xs text-slate-300 leading-5 bg-slate-900/70 border border-slate-700 rounded-xl p-3">
+                  {renewalMessage}
+                </p>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -726,58 +734,12 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
          <ToggleItem title="الرسائل التحفيزية" description="عرض آية أو ذكر أو عبارة تشجيعية بجانب شعار أقساطي" value={showMotivationalTicker} onToggle={() => toggleSetting('show_motivational_ticker', showMotivationalTicker, setShowMotivationalTicker)} icon="✨" />
       </div>
 
-      {/* Account Security Section */}
+      {/* App Security Section */}
       <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 shadow-sm">
-        <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">🔐 أمان الحساب</h3>
+        <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">🔐 أمان التطبيق وقفل الشاشة</h3>
         <p className="text-slate-400 text-xs mb-4">
-          تغيير كلمة المرور للحساب <span dir="ltr" className="text-slate-300">{currentUser?.phone || ''}</span>
+          تعيين رمز قفل PIN إضافي لمنع فتح التطبيق عند قفله أو تركه مفتوحاً على هذا الجهاز
         </p>
-        <form onSubmit={handleChangePassword} className="space-y-3">
-          <div>
-            <label className="block text-sm text-slate-400 mb-2">كلمة المرور الحالية</label>
-            <input
-              type="password"
-              value={passwordForm.current}
-              onChange={(event) => setPasswordForm((form) => ({ ...form, current: event.target.value }))}
-              autoComplete="current-password"
-              className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none transition-colors"
-              placeholder="أدخل كلمة المرور الحالية"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-slate-400 mb-2">كلمة المرور الجديدة</label>
-            <input
-              type="password"
-              value={passwordForm.next}
-              onChange={(event) => setPasswordForm((form) => ({ ...form, next: event.target.value }))}
-              autoComplete="new-password"
-              minLength={6}
-              className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none transition-colors"
-              placeholder="6 أحرف أو أرقام على الأقل"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-slate-400 mb-2">تأكيد كلمة المرور الجديدة</label>
-            <input
-              type="password"
-              value={passwordForm.confirm}
-              onChange={(event) => setPasswordForm((form) => ({ ...form, confirm: event.target.value }))}
-              autoComplete="new-password"
-              minLength={6}
-              className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none transition-colors"
-              placeholder="أعد كتابة كلمة المرور الجديدة"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={passwordLoading}
-            className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-500 transition-colors disabled:opacity-50"
-          >
-            {passwordLoading ? 'جاري تغيير كلمة المرور...' : 'حفظ كلمة المرور الجديدة'}
-          </button>
-          {passwordError && <p className="text-rose-300 text-xs bg-rose-500/10 border border-rose-500/30 rounded-xl p-3">{passwordError}</p>}
-          {passwordMessage && <p className="text-emerald-300 text-xs bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3">{passwordMessage}</p>}
-        </form>
 
         <div className="mt-6 border-t border-slate-700/60 pt-5">
           <div className="flex items-start justify-between gap-3 mb-4">
@@ -1021,7 +983,7 @@ const Settings = ({ onSettingsChange, onLicenseRenewed, currentUser, onLogout, i
       </div>
 
       <div className="text-center text-slate-500 text-sm pt-4">
-         <p>نظام أقساطي - مزامنة سحابية آمنة ومشفرة</p>
+         <p>نظام أقساطي - تخزين محلي آمن على جهازك</p>
       </div>
 
       {/* ── نافذة اختيار نسخة Google Drive للاسترجاع ── */}

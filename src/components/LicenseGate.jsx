@@ -28,7 +28,7 @@ const LicenseGate = ({ onActivated, isModal = false }) => {
   };
 
   const handleSupportWhatsApp = () => {
-    const message = `السلام عليكم، أريد تجديد اشتراك تطبيق أقساطي. رقم الجهاز: ${deviceId || ''}`;
+    const message = `السلام عليكم، لدي استفسار بخصوص الدعم الفني لتطبيق أقساطي. رقم الجهاز: ${deviceId || ''}`;
     window.open(`https://wa.me/${SUPPORT_WHATSAPP_PHONE}?text=${encodeURIComponent(message)}`, '_blank');
   };
 

@@ -161,8 +161,10 @@ const CustomerList = ({
       result = result.filter(c => overdueStatus[c.id] && (!c.is_deleted));
     } else if (activeTab === 'deleted') {
       result = result.filter(c => c.is_deleted === 1);
+    } else if (activeTab === 'active') {
+      // In regular active view, exclude overdue accounts (both manually flagged and overdue by threshold)
+      result = result.filter(c => c.status === 'active' && (!c.is_deleted) && !overdueStatus[c.id]);
     } else {
-      // Keep all customers visible in their tab (overdue accounts have distinct visual indicators)
       result = result.filter(c => c.status === activeTab && (!c.is_deleted));
     }
     
@@ -191,11 +193,23 @@ const CustomerList = ({
 
     setPdfLoading(true);
     try {
-      const reportCustomers = customers.filter(customer => customer.is_deleted !== 1);
+      const isOverdue = filterType === 'overdue';
+      const reportCustomers = customers.filter(customer => {
+        if (customer.is_deleted === 1) return false;
+        if (isOverdue) {
+          return Boolean(overdueStatus[customer.id]);
+        }
+        // In normal view, exclude overdue customers (manual or schedule)
+        return !overdueStatus[customer.id] && customer.status === 'active';
+      });
+
       await generatePDF(null, PDF_MODES.CUSTOMERS_SUMMARY, {
         customers: reportCustomers,
         summaries: customerReportSummaries,
-        scopeName: managerName
+        scopeName: managerName,
+        reportTitle: isOverdue
+          ? (managerName ? `كشف متعثري ${managerName}` : 'كشف العملاء المتعثرين')
+          : (managerName ? `كشف عملاء ${managerName}` : 'كشف شامل للعملاء')
       });
     } finally {
       setPdfLoading(false);
@@ -328,15 +342,15 @@ const CustomerList = ({
             type="button"
             onClick={handleExportCustomersPDF}
             disabled={pdfLoading || loading}
-            className={`${managerId ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/25' : 'bg-blue-500/15 border-blue-500/40 text-blue-300 hover:bg-blue-500/25'} border px-3 py-3 rounded-xl font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50`}
-            title="طباعة PDF شامل لكل العملاء"
+            className={`${filterType === 'overdue' ? 'bg-rose-500/15 border-rose-500/40 text-rose-300 hover:bg-rose-500/25 shadow-rose-950/20' : managerId ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/25' : 'bg-blue-500/15 border-blue-500/40 text-blue-300 hover:bg-blue-500/25'} border px-3 py-3 rounded-xl font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50`}
+            title={filterType === 'overdue' ? "طباعة كشف المتعثرين PDF" : "طباعة PDF شامل لكل العملاء"}
           >
             {pdfLoading ? (
               <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
             ) : (
-              <span className="text-sm">PDF</span>
+              <span className="text-sm font-black">PDF</span>
             )}
-            <span className="hidden sm:inline text-xs">كشف العملاء</span>
+            <span className="hidden sm:inline text-xs">{filterType === 'overdue' ? 'كشف المتعثرين' : 'كشف العملاء'}</span>
           </button>
         </div>
 

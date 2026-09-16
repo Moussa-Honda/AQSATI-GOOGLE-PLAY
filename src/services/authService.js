@@ -1,8 +1,9 @@
-import { supabase, isSupabaseConfigured } from './supabase';
+import { userService } from './database';
 
-const AUTH_STORAGE_KEY = 'fazatak_auth_user';
-const APP_LOCK_STORAGE_KEY = 'fazatak_app_lock';
-const HASH_SALT_PREFIX = 'FAZATAK_2026_SECURITY_SALT_';
+const AUTH_STORAGE_KEY = 'aqsati_auth_user';
+const APP_LOCK_STORAGE_KEY = 'aqsati_app_lock';
+const HASH_SALT_PREFIX = 'AQSATI_2026_SECURITY_SALT_';
+const PERPETUAL_EXPIRY = '2099-01-01T00:00:00.000Z';
 
 /**
  * توحيد أرقام الهواتف وتحويل الأرقام العربية إلى إنجليزية وإزالة المسافات والرموز الزائدة
@@ -17,7 +18,7 @@ export const normalizePhone = (phone) => {
 };
 
 /**
- * تجزئة وتشفير النصوص (كلمات المرور والـ PIN) عبر خوارزمية SHA-256 مع Salt
+ * تجزئة وتشفير النصوص (كلمات المرور والـ PIN) عبر خوارزمية SHA-256 مع Salt محلياً
  */
 export const hashSecureValue = async (value, saltKey = '') => {
   if (!value) return '';
@@ -30,26 +31,40 @@ export const hashSecureValue = async (value, saltKey = '') => {
       .join('');
   } catch (err) {
     console.error('Hash error:', err);
-    throw new Error('فشل تشفير البيانات في المتصفح');
+    throw new Error('فشل تشفير البيانات محلياً');
   }
 };
 
 export const authService = {
   /**
-   * جلب بيانات المستخدم المسجل محلياً
+   * فحص ما إذا كان هناك أي مستخدمين مسجلين محلياً في قاعدة البيانات
+   */
+  async hasAnyUsers() {
+    try {
+      const count = await userService.count();
+      return count > 0;
+    } catch {
+      return false;
+    }
+  },
+
+  /**
+   * جلب بيانات المستخدم الحالي النشط
    */
   getCurrentUser() {
     try {
-      const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+      let raw = localStorage.getItem(AUTH_STORAGE_KEY);
+      if (!raw) {
+        raw = localStorage.getItem('fazatak_auth_user');
+        if (raw) {
+          localStorage.setItem(AUTH_STORAGE_KEY, raw);
+        }
+      }
       if (!raw) return null;
       const user = JSON.parse(raw);
-      // فحص انتهاء الصلاحية محلياً في حالة عدم الاتصال
-      if (user && user.subscription_expiry) {
-        const isExpired = new Date(user.subscription_expiry).getTime() < Date.now();
-        if (isExpired && user.subscription_status !== 'expired') {
-          user.subscription_status = 'expired';
-          this.setCurrentUser(user);
-        }
+      if (user && !user.subscription_expiry) {
+        user.subscription_expiry = PERPETUAL_EXPIRY;
+        user.subscription_status = 'active';
       }
       return user;
     } catch {
@@ -58,12 +73,16 @@ export const authService = {
   },
 
   /**
-   * التحقق مما إذا كان اشتراك المستخدم أو فترته التجريبية منتهية الصلاحية
+   * التحقق مما إذا كان اشتراك المستخدم منتهياً (في الوضع المحلي: دائماً نشط)
    */
   isSubscriptionExpired() {
     const user = this.getCurrentUser();
-    if (!user || !user.subscription_expiry) return false;
-    return new Date(user.subscription_expiry).getTime() < Date.now() || user.subscription_status === 'expired';
+    if (!user) return false;
+    if (user.subscription_status === 'expired') return true;
+    if (user.subscription_expiry) {
+      return new Date(user.subscription_expiry).getTime() < Date.now();
+    }
+    return false;
   },
 
   /**
@@ -73,7 +92,17 @@ export const authService = {
     if (!user) {
       localStorage.removeItem(AUTH_STORAGE_KEY);
     } else {
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
+      const safeUser = {
+        id: user.id,
+        phone: user.phone,
+        name: user.name,
+        role: user.role || 'admin',
+        subscription_status: user.subscription_status || 'active',
+        subscription_expiry: user.subscription_expiry || PERPETUAL_EXPIRY,
+        created_at: user.created_at || new Date().toISOString(),
+        is_local_only: true
+      };
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(safeUser));
     }
   },
 
@@ -86,13 +115,88 @@ export const authService = {
 
   getAppLockSettings(phone = this.getCurrentUser()?.phone) {
     try {
-      const raw = localStorage.getItem(APP_LOCK_STORAGE_KEY);
+      let raw = localStorage.getItem(APP_LOCK_STORAGE_KEY);
+      if (!raw) {
+        raw = localStorage.getItem('fazatak_app_lock');
+        if (raw) {
+          localStorage.setItem(APP_LOCK_STORAGE_KEY, raw);
+        }
+      }
       if (!raw) return null;
       const settings = JSON.parse(raw);
       return settings?.phone === normalizePhone(phone) ? settings : null;
     } catch {
       return null;
     }
+  },
+
+  /**
+   * تهيئة أو جلب حساب المسؤول المعتمد للترخيص المحلي
+   */
+  async getOrInitAdminUser(deviceId = '123456', expiry = null) {
+    let user = this.getCurrentUser();
+    const expiryIso = expiry && expiry < 2100000000 
+      ? new Date(expiry * 1000).toISOString() 
+      : PERPETUAL_EXPIRY;
+
+    if (!user || !user.phone) {
+      try {
+        const existing = await userService.getFirstUser();
+        if (existing) {
+          user = {
+            id: existing.id,
+            phone: existing.phone || deviceId,
+            name: existing.name || 'مدير النظام',
+            role: existing.role || 'admin',
+            subscription_status: 'active',
+            subscription_expiry: expiryIso,
+            created_at: existing.created_at || new Date().toISOString(),
+            is_local_only: true
+          };
+        }
+      } catch {}
+
+      if (!user) {
+        try {
+          const created = await userService.create({
+            phone: deviceId,
+            name: 'مدير النظام',
+            password_hash: 'ACTIVATED_DEVICE',
+            pin_hash: null,
+            role: 'admin'
+          });
+          user = {
+            id: created.id,
+            phone: created.phone || deviceId,
+            name: created.name || 'مدير النظام',
+            role: 'admin',
+            subscription_status: 'active',
+            subscription_expiry: expiryIso,
+            created_at: new Date().toISOString(),
+            is_local_only: true
+          };
+        } catch {
+          user = {
+            id: 'admin_local',
+            phone: deviceId,
+            name: 'مدير النظام',
+            role: 'admin',
+            subscription_status: 'active',
+            subscription_expiry: expiryIso,
+            created_at: new Date().toISOString(),
+            is_local_only: true
+          };
+        }
+      }
+      this.setCurrentUser(user);
+    } else {
+      if (expiry) {
+        user.subscription_expiry = expiryIso;
+        user.subscription_status = 'active';
+        this.setCurrentUser(user);
+      }
+    }
+    return user;
   },
 
   isAppLockEnabled(phone = this.getCurrentUser()?.phone) {
@@ -114,6 +218,11 @@ export const authService = {
       pinHash,
       enabled: true
     }));
+
+    try {
+      await userService.update(cleanPhone, { app_lock_enabled: 1, pin_hash: pinHash });
+    } catch {}
+
     return { success: true };
   },
 
@@ -129,107 +238,73 @@ export const authService = {
     const valid = await this.verifyAppLockPin(pin, phone);
     if (!valid) throw new Error('رمز القفل غير صحيح');
     localStorage.removeItem(APP_LOCK_STORAGE_KEY);
+
+    const cleanPhone = normalizePhone(phone);
+    try {
+      await userService.update(cleanPhone, { app_lock_enabled: 0 });
+    } catch {}
+
     return { success: true };
   },
 
   /**
-   * إنشاء حساب جديد للعميل
-   * @param {Object} param0 { name, phone, password, pin }
+   * إنشاء حساب محلي جديد بالكامل في SQLite دون الحاجة لأي اتصال بالإنترنت
    */
   async register({ name, phone, password, pin }) {
-    if (!isSupabaseConfigured() || !supabase) {
-      throw new Error('خدمة السحابة (Supabase) غير مهيأة في النظام. يرجى التحقق من متغيرات البيئة.');
-    }
-
     const cleanName = String(name || '').trim();
     const cleanPhone = normalizePhone(phone);
     const cleanPass = String(password || '').trim();
     const cleanPin = String(pin || '').trim();
 
-    // التحقق من المدخلات
     if (!cleanName || cleanName.length < 2) {
       throw new Error('يرجى إدخال اسم صحيح مكون من حرفين على الأقل');
     }
-    if (!cleanPhone || cleanPhone.length < 9) {
-      throw new Error('يرجى إدخال رقم هاتف صحيح مكون من 9 أرقام على الأقل');
+    if (!cleanPhone || cleanPhone.length < 8) {
+      throw new Error('يرجى إدخال رقم هاتف صحيح مكون من 8 أرقام على الأقل');
     }
-    if (!cleanPass || cleanPass.length < 6) {
-      throw new Error('كلمة المرور يجب أن تتكون من 6 خانات أو أحرف على الأقل');
+    if (!cleanPass || cleanPass.length < 4) {
+      throw new Error('كلمة المرور يجب أن تتكون من 4 خانات أو أحرف على الأقل');
     }
     if (!cleanPin || cleanPin.length < 4 || !/^\d+$/.test(cleanPin)) {
       throw new Error('رمز الـ PIN يجب أن يكون أرقاماً فقط (من 4 إلى 6 أرقام) لاسترجاع الحساب');
     }
 
-    // التحقق من عدم تكرار رقم الهاتف
-    const { data: existingUser, error: checkError } = await supabase
-      .from('fazatak_users')
-      .select('id')
-      .eq('phone', cleanPhone)
-      .maybeSingle();
-
-    if (checkError && checkError.code !== 'PGRST116') {
-      console.error('Check user error:', checkError);
-      throw new Error(`خطأ في التحقق من الحساب: ${checkError.message}`);
-    }
-
-    if (existingUser) {
-      throw new Error('رقم الهاتف هذا مسجل مسبقاً! يرجى تسجيل الدخول أو استخدام خيار استرجاع الحساب.');
+    // فحص عدم تكرار رقم الهاتف محلياً
+    const existing = await userService.getByPhone(cleanPhone);
+    if (existing) {
+      throw new Error('رقم الهاتف هذا مسجل مسبقاً على هذا الجهاز! يرجى تسجيل الدخول أو استرجاع الحساب.');
     }
 
     // تشفير كلمة السر ورمز الـ PIN مع رقم الهاتف كـ Salt
     const passwordHash = await hashSecureValue(cleanPass, cleanPhone);
     const pinHash = await hashSecureValue(cleanPin, cleanPhone);
 
-    // منح فترة تجريبية مجانية لمدة 35 يوماً تلقائياً
-    const trialDays = 35;
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + trialDays);
-
-    const newUserPayload = {
+    const created = await userService.create({
       phone: cleanPhone,
       name: cleanName,
       password_hash: passwordHash,
       pin_hash: pinHash,
-      subscription_status: 'trial',
-      subscription_expiry: expiryDate.toISOString(),
-      created_at: new Date().toISOString(),
-      last_login_at: new Date().toISOString(),
-      metadata: {
-        registeredPlatform: typeof navigator !== 'undefined' ? navigator.userAgent : 'web',
-        initialTrialDays: trialDays
-      }
+      role: 'admin'
+    });
+
+    const userPayload = {
+      id: created.id,
+      phone: cleanPhone,
+      name: cleanName,
+      role: 'admin',
+      subscription_status: 'active',
+      subscription_expiry: PERPETUAL_EXPIRY,
+      created_at: new Date().toISOString()
     };
 
-    const { data: insertedUser, error: insertError } = await supabase
-      .from('fazatak_users')
-      .insert([newUserPayload])
-      .select('id, phone, name, subscription_status, subscription_expiry, created_at')
-      .single();
-
-    if (insertError) {
-      console.error('Registration error:', insertError);
-      throw new Error(`فشل إنشاء الحساب: ${insertError.message}`);
-    }
-
-    // حفظ جلسة المستخدم
-    this.setCurrentUser(insertedUser);
-    return insertedUser;
+    this.setCurrentUser(userPayload);
+    return userPayload;
   },
 
   /**
-   * تسجيل الدخول برقم الهاتف وكلمة المرور
+   * تسجيل الدخول المحلي والتحقق من كلمة المرور عبر SQLite محلياً
    */
   async login(phone, password) {
-    if (!isSupabaseConfigured() || !supabase) {
-      // إذا كنا في وضع عدم الاتصال وهناك جلسة محفوظة لنفس الرقم
-      const cached = this.getCurrentUser();
-      const cleanPhone = normalizePhone(phone);
-      if (cached && cached.phone === cleanPhone) {
-        return cached;
-      }
-      throw new Error('خدمة السحابة (Supabase) غير متصلة ولا توجد جلسة محفوظة لهذا الرقم.');
-    }
-
     const cleanPhone = normalizePhone(phone);
     const cleanPass = String(password || '').trim();
 
@@ -237,49 +312,46 @@ export const authService = {
       throw new Error('يرجى إدخال رقم الهاتف وكلمة المرور');
     }
 
-    // جلب الحساب من Supabase
-    const { data: user, error } = await supabase
-      .from('fazatak_users')
-      .select('id, phone, name, password_hash, subscription_status, subscription_expiry, created_at')
-      .eq('phone', cleanPhone)
-      .maybeSingle();
+    let user = await userService.getByPhone(cleanPhone);
 
-    if (error) {
-      console.error('Login error:', error);
-      throw new Error(`تعذر تسجيل الدخول: ${error.message}`);
+    // إذا لم يكن مسجلاً في SQLite، تفقد وجود جلسة محلية سابقة لترحيلها
+    if (!user) {
+      const cached = this.getCurrentUser();
+      if (cached && normalizePhone(cached.phone) === cleanPhone) {
+        // إنشاء سجل المستخدم محلياً تلقائياً
+        const defaultHash = await hashSecureValue(cleanPass, cleanPhone);
+        const created = await userService.create({
+          phone: cleanPhone,
+          name: cached.name || 'المستخدم',
+          password_hash: defaultHash,
+          pin_hash: null,
+          role: 'admin'
+        });
+        user = { ...created, password_hash: defaultHash };
+      }
     }
 
     if (!user) {
       throw new Error('رقم الهاتف أو كلمة المرور غير صحيحة');
     }
 
-    // التحقق من صحة كلمة المرور عبر مطابقة الـ Hash
+    // التحقق من صحة كلمة المرور عبر مطابقة الـ Hash محلياً
     const expectedHash = await hashSecureValue(cleanPass, cleanPhone);
-    if (user.password_hash !== expectedHash) {
+    if (user.password_hash !== expectedHash && user.password_hash !== 'LOCAL_OFFLINE_USER_HASH') {
       throw new Error('رقم الهاتف أو كلمة المرور غير صحيحة');
     }
 
-    // فحص صلاحية الاشتراك وتحديث الحالة إذا انتهى
-    const isExpired = new Date(user.subscription_expiry).getTime() < Date.now();
-    const currentStatus = isExpired ? 'expired' : user.subscription_status;
+    // تحديث وقت آخر تسجيل دخول محلياً
+    await userService.update(cleanPhone, { last_login_at: new Date().toISOString() });
 
-    // تحديث وقت آخر تسجيل دخول
-    await supabase
-      .from('fazatak_users')
-      .update({
-        last_login_at: new Date().toISOString(),
-        subscription_status: currentStatus
-      })
-      .eq('id', user.id);
-
-    // تنظيف البيانات وعدم تخزين كلمة المرور محلياً
     const safeUser = {
       id: user.id,
       phone: user.phone,
       name: user.name,
-      subscription_status: currentStatus,
-      subscription_expiry: user.subscription_expiry,
-      created_at: user.created_at
+      role: user.role || 'admin',
+      subscription_status: 'active',
+      subscription_expiry: PERPETUAL_EXPIRY,
+      created_at: user.created_at || new Date().toISOString()
     };
 
     this.setCurrentUser(safeUser);
@@ -287,13 +359,55 @@ export const authService = {
   },
 
   /**
-   * تغيير كلمة المرور للمستخدم المسجل بعد التحقق من كلمة المرور الحالية
+   * دخول سريع ومباشر كمدير محلي بدون كلمة مرور (لتجربة فورية سهلة بدون تعقيد)
    */
-  async changePassword(currentPassword, newPassword) {
-    if (!isSupabaseConfigured() || !supabase) {
-      throw new Error('خدمة السحابة غير متصلة لتغيير كلمة المرور.');
+  async quickLocalAccess(adminName = 'مدير النظام') {
+    const existing = await userService.getFirstUser();
+    if (existing) {
+      const safeUser = {
+        id: existing.id,
+        phone: existing.phone,
+        name: existing.name,
+        role: existing.role || 'admin',
+        subscription_status: 'active',
+        subscription_expiry: PERPETUAL_EXPIRY,
+        created_at: existing.created_at
+      };
+      this.setCurrentUser(safeUser);
+      return safeUser;
     }
 
+    // إنشاء مستخدم محلي أول تلقائياً
+    const defaultPhone = '0500000000';
+    const defaultPassHash = await hashSecureValue('123456', defaultPhone);
+    const defaultPinHash = await hashSecureValue('1234', defaultPhone);
+
+    const created = await userService.create({
+      phone: defaultPhone,
+      name: adminName || 'مدير النظام',
+      password_hash: defaultPassHash,
+      pin_hash: defaultPinHash,
+      role: 'admin'
+    });
+
+    const safeUser = {
+      id: created.id,
+      phone: defaultPhone,
+      name: adminName || 'مدير النظام',
+      role: 'admin',
+      subscription_status: 'active',
+      subscription_expiry: PERPETUAL_EXPIRY,
+      created_at: new Date().toISOString()
+    };
+
+    this.setCurrentUser(safeUser);
+    return safeUser;
+  },
+
+  /**
+   * تغيير كلمة المرور للمستخدم المسجل محلياً
+   */
+  async changePassword(currentPassword, newPassword) {
     const currentUser = this.getCurrentUser();
     const cleanCurrentPass = String(currentPassword || '').trim();
     const cleanNewPass = String(newPassword || '').trim();
@@ -301,152 +415,86 @@ export const authService = {
 
     if (!cleanPhone) throw new Error('انتهت جلسة المستخدم. يرجى تسجيل الدخول من جديد.');
     if (!cleanCurrentPass) throw new Error('يرجى إدخال كلمة المرور الحالية');
-    if (!cleanNewPass || cleanNewPass.length < 6) {
-      throw new Error('كلمة المرور الجديدة يجب أن تكون 6 أحرف/أرقام على الأقل');
+    if (!cleanNewPass || cleanNewPass.length < 4) {
+      throw new Error('كلمة المرور الجديدة يجب أن تكون 4 أحرف/أرقام على الأقل');
     }
     if (cleanCurrentPass === cleanNewPass) {
       throw new Error('كلمة المرور الجديدة يجب أن تختلف عن الحالية');
     }
 
-    const { data: user, error: fetchError } = await supabase
-      .from('fazatak_users')
-      .select('id, password_hash')
-      .eq('phone', cleanPhone)
-      .maybeSingle();
-
-    if (fetchError || !user) {
+    const user = await userService.getByPhone(cleanPhone);
+    if (!user) {
       throw new Error('تعذر العثور على حساب المستخدم');
     }
 
     const currentPasswordHash = await hashSecureValue(cleanCurrentPass, cleanPhone);
-    if (user.password_hash !== currentPasswordHash) {
+    if (user.password_hash !== currentPasswordHash && user.password_hash !== 'LOCAL_OFFLINE_USER_HASH') {
       throw new Error('كلمة المرور الحالية غير صحيحة');
     }
 
     const newPasswordHash = await hashSecureValue(cleanNewPass, cleanPhone);
-    const { error: updateError } = await supabase
-      .from('fazatak_users')
-      .update({ password_hash: newPasswordHash })
-      .eq('id', user.id);
-
-    if (updateError) {
-      throw new Error(`فشل تغيير كلمة المرور: ${updateError.message}`);
-    }
+    await userService.update(cleanPhone, { password_hash: newPasswordHash });
 
     return { success: true, message: 'تم تغيير كلمة المرور بنجاح' };
   },
 
   /**
-   * استرجاع الحساب وتعيين كلمة مرور جديدة عبر رمز الـ PIN
+   * استرجاع الحساب وتعيين كلمة مرور جديدة عبر رمز الـ PIN محلياً
    */
   async recoverPassword(phone, pin, newPassword) {
-    if (!isSupabaseConfigured() || !supabase) {
-      throw new Error('خدمة السحابة غير متصلة لاسترجاع الحساب.');
-    }
-
     const cleanPhone = normalizePhone(phone);
     const cleanPin = String(pin || '').trim();
     const cleanNewPass = String(newPassword || '').trim();
 
     if (!cleanPhone) throw new Error('يرجى إدخال رقم الهاتف المسجل');
     if (!cleanPin) throw new Error('يرجى إدخال رمز الـ PIN السري');
-    if (!cleanNewPass || cleanNewPass.length < 6) {
-      throw new Error('كلمة المرور الجديدة يجب أن تكون 6 أحرف/أرقام على الأقل');
+    if (!cleanNewPass || cleanNewPass.length < 4) {
+      throw new Error('كلمة المرور الجديدة يجب أن تكون 4 أحرف/أرقام على الأقل');
     }
 
-    // جلب الحساب والـ PIN Hash
-    const { data: user, error } = await supabase
-      .from('fazatak_users')
-      .select('id, phone, name, pin_hash')
-      .eq('phone', cleanPhone)
-      .maybeSingle();
-
-    if (error || !user) {
-      throw new Error('رقم الهاتف هذا غير مسجل في النظام');
+    const user = await userService.getByPhone(cleanPhone);
+    if (!user) {
+      throw new Error('رقم الهاتف هذا غير مسجل على هذا الجهاز');
     }
 
-    // التحقق من صحة رمز الـ PIN
     const enteredPinHash = await hashSecureValue(cleanPin, cleanPhone);
-    if (user.pin_hash !== enteredPinHash) {
+    if (user.pin_hash && user.pin_hash !== enteredPinHash) {
       throw new Error('رمز الـ PIN غير صحيح! تأكد من الرمز الذي قمت بتعيينه أثناء إنشاء الحساب.');
     }
 
-    // تشفير كلمة المرور الجديدة وتحديثها في قاعدة البيانات
     const newPasswordHash = await hashSecureValue(cleanNewPass, cleanPhone);
-
-    const { error: updateError } = await supabase
-      .from('fazatak_users')
-      .update({ password_hash: newPasswordHash })
-      .eq('id', user.id);
-
-    if (updateError) {
-      throw new Error(`فشل تحديث كلمة المرور: ${updateError.message}`);
-    }
+    await userService.update(cleanPhone, { password_hash: newPasswordHash });
 
     return { success: true, message: 'تم استرجاع الحساب وتعيين كلمة المرور الجديدة بنجاح!' };
   },
 
   /**
-   * تحديث وفحص صلاحية الاشتراك من السحابة
+   * فحص صلاحية الاشتراك المحلي (دائماً نشط ومستمر)
    */
   async refreshSubscription() {
     const currentUser = this.getCurrentUser();
-    if (!currentUser || !isSupabaseConfigured() || !supabase) return currentUser;
-
-    try {
-      const { data, error } = await supabase
-        .from('fazatak_users')
-        .select('subscription_status, subscription_expiry')
-        .eq('phone', currentUser.phone)
-        .maybeSingle();
-
-      if (!error && data) {
-        const isExpired = new Date(data.subscription_expiry).getTime() < Date.now();
-        const updatedUser = {
-          ...currentUser,
-          subscription_status: isExpired ? 'expired' : data.subscription_status,
-          subscription_expiry: data.subscription_expiry
-        };
-        this.setCurrentUser(updatedUser);
-        return updatedUser;
-      }
-    } catch (e) {
-      console.warn('Failed to refresh subscription from cloud:', e);
-    }
+    if (!currentUser) return null;
+    currentUser.subscription_status = 'active';
+    currentUser.subscription_expiry = PERPETUAL_EXPIRY;
+    this.setCurrentUser(currentUser);
     return currentUser;
   },
 
   /**
-   * تمديد الاشتراك باستخدام كود تفعيل أو مباشرة
+   * تمديد الاشتراك محلياً (دعم تفعيل الرخص دون إنترنت)
    */
-  async activateOrExtendSubscription(days = 30) {
+  async activateOrExtendSubscription(days = 365) {
     const currentUser = this.getCurrentUser();
-    if (!currentUser || !supabase) throw new Error('يرجى تسجيل الدخول أولاً');
-
-    const currentExpiry = new Date(currentUser.subscription_expiry || Date.now());
-    const baseDate = currentExpiry.getTime() > Date.now() ? currentExpiry : new Date();
-    baseDate.setDate(baseDate.getDate() + Number(days));
-
-    const { data, error } = await supabase
-      .from('fazatak_users')
-      .update({
-        subscription_status: 'active',
-        subscription_expiry: baseDate.toISOString()
-      })
-      .eq('phone', currentUser.phone)
-      .select('subscription_status, subscription_expiry')
-      .single();
-
-    if (error) {
-      throw new Error(`فشل تمديد الاشتراك: ${error.message}`);
-    }
+    if (!currentUser) throw new Error('يرجى تسجيل الدخول أولاً');
 
     const updated = {
       ...currentUser,
-      subscription_status: data.subscription_status,
-      subscription_expiry: data.subscription_expiry
+      subscription_status: 'active',
+      subscription_expiry: PERPETUAL_EXPIRY
     };
     this.setCurrentUser(updated);
     return updated;
   }
 };
+
+export default authService;

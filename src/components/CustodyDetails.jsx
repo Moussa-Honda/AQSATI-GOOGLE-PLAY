@@ -244,7 +244,23 @@ const CustodyDetails = ({ custody, onBack, isReadOnly = false, onRenewalRequest 
                         >
                           {isReceipt ? 'سند قبض' : 'مصروف'}
                         </span>
+                        {exp.payment_method && (
+                          <span
+                            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold border ${
+                              exp.payment_method === 'transfer'
+                                ? 'bg-blue-500/10 text-blue-400 border-blue-500/25'
+                                : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                            }`}
+                          >
+                            {exp.payment_method === 'transfer' ? 'تحويل' : 'نقدي'}
+                          </span>
+                        )}
                       </div>
+                      {exp.notes && (
+                        <p className="text-xs text-slate-400 mb-1 break-words">
+                          <span className="text-slate-500 font-medium">ملاحظة:</span> {exp.notes}
+                        </p>
+                      )}
                       <div className="text-[10px] text-slate-500">
                         {exp.date}
                         {hijriEnabled && (

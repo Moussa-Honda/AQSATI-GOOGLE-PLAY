@@ -92,7 +92,7 @@ export const saveCloudBackup = async (backupPayload) => {
   }
 
   const record = {
-    file_name: backupPayload.fileName || 'Fazatak_Main_Backup.json',
+    file_name: backupPayload.fileName || 'أقساطي_Backup.json',
     version: backupPayload.version || '2.0-offline',
     records_count: Object.values(backupPayload.counts || {}).reduce((a, b) => a + b, 0),
     tables_count: Object.keys(backupPayload.tables || {}).length,

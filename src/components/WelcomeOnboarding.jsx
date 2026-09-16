@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const ONBOARDING_KEY = 'fazatak_onboarding_done';
+const ONBOARDING_KEY = 'aqsati_onboarding_done';
 
 const slides = [
   {
@@ -152,7 +152,7 @@ export function useOnboarding() {
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
-    const done = localStorage.getItem(ONBOARDING_KEY);
+    const done = localStorage.getItem(ONBOARDING_KEY) || localStorage.getItem('fazatak_onboarding_done');
     if (!done) {
       setShowOnboarding(true);
     }
@@ -249,7 +249,7 @@ export default function WelcomeOnboarding({ onComplete }) {
         </button>
         {/* App name */}
         <span className="onboarding-brand flex items-center gap-2">
-          <img src="/logo-mark.svg" alt="شعار أقساطي" className="w-8 h-8 rounded-xl" />
+          <img src="/logo-aqsati.png" alt="شعار أقساطي" className="w-8 h-8 object-contain rounded-lg shadow" />
           <span>أقساطي</span>
         </span>
       </div>

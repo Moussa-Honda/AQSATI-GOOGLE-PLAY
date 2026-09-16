@@ -36,6 +36,8 @@ build/
 ios/build/
 *.ipa
 *.xcarchive
+*.apk
+*.aab
 *.log
 
 # Local Apple signing material (never commit these files)
@@ -76,3 +78,12 @@ tools/*.pem
 *.key
 *.pem
 *.p8
+*.jks
+*.keystore
+*.pfx
+key.properties
+signing.properties
+
+# Ignore GitHub completely
+.github/
+

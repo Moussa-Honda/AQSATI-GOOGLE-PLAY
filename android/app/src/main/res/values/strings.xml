@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">فزعتك للأقساط والديون</string>
-    <string name="title_activity_main">فزعتك للأقساط والديون</string>
+    <string name="app_name">أقساطي</string>
+    <string name="title_activity_main">أقساطي للأقساط والديون</string>
     <string name="package_name">com.installment.app</string>
     <string name="custom_url_scheme">com.installment.app</string>
     <string name="server_client_id">727760232001-o910mq064id3fnkioth9vjs6jis0e99p.apps.googleusercontent.com</string>

@@ -11,6 +11,7 @@ export const PDF_MODES = {
   CONTRACT_STATEMENT:  'CONTRACT_STATEMENT',
   INSTALLMENT_RECEIPT: 'INSTALLMENT_RECEIPT',
   CUSTODY_STATEMENT:  'CUSTODY_STATEMENT',
+  MANAGERS_OVERDUE_SUMMARY: 'MANAGERS_OVERDUE_SUMMARY',
 };
 
 const fmt     = (n) => Number(n || 0).toLocaleString('en-US');
@@ -213,7 +214,7 @@ const buildGlobalHTML = async (customer, contracts, s, managedBy = null) => {
 };
 
 // ─── Mode 2: Customers Summary ────────────────────────────────────────────────
-const buildCustomersSummaryHTML = (customers, summaries, s, scopeName = null) => {
+const buildCustomersSummaryHTML = (customers, summaries, s, scopeName = null, reportTitle = null) => {
   let grandTotal = 0;
   let grandPaid = 0;
   let grandRemain = 0;
@@ -238,7 +239,7 @@ const buildCustomersSummaryHTML = (customers, summaries, s, scopeName = null) =>
   }).join('');
 
   return wrap(`
-    ${headerHTML('كشف شامل للعملاء', scopeName ? `الحساب: ${escapeHTML(scopeName)}` : 'جميع العملاء', s)}
+    ${headerHTML(reportTitle || 'كشف شامل للعملاء', scopeName ? `الحساب: ${escapeHTML(scopeName)}` : 'جميع العملاء', s)}
     <div class="info">
       <div class="info-col">
         <div class="lbl">نطاق التقرير</div><div class="val">${scopeName ? escapeHTML(scopeName) : 'العملاء الشخصيون'}</div>
@@ -262,6 +263,62 @@ const buildCustomersSummaryHTML = (customers, summaries, s, scopeName = null) =>
     ${totalsHTML(grandTotal, grandPaid, grandRemain)}
     ${footerHTML(s)}`);
 };
+
+// ─── Mode: Managers Overdue Summary ──────────────────────────────────────────
+const buildManagersOverdueHTML = (managers, s) => {
+  let grandContracts = 0;
+  let grandPaid = 0;
+  let grandRemain = 0;
+  let grandOverdueCustomers = 0;
+
+  const rows = managers.map((mgr) => {
+    const total = Number(mgr.total_contracts || 0);
+    const paid = Number(mgr.total_paid || 0);
+    const remain = Number(mgr.total_remaining || 0);
+    const overdueCount = Number(mgr.overdue_customer_count || 0);
+
+    grandContracts += total;
+    grandPaid += paid;
+    grandRemain += remain;
+    grandOverdueCustomers += overdueCount;
+
+    return `<tr>
+      <td style="font-weight:bold; color:#0f172a; text-align:right;">${escapeHTML(mgr.name || 'مدير')}</td>
+      <td style="direction:ltr; color:#0f172a;">${escapeHTML(mgr.phone || '—')}</td>
+      <td style="font-weight:bold; color:#dc2626;">${fmt(overdueCount)}</td>
+      <td style="font-weight:bold; color:#0f172a;">${fmt(Math.round(total))} ر.س</td>
+      <td class="green" style="font-weight:bold;">${fmt(Math.round(paid))} ر.س</td>
+      <td class="${remain > 0 ? 'red' : 'green'}" style="font-weight:bold;">${fmt(Math.round(remain))} ر.س</td>
+    </tr>`;
+  }).join('');
+
+  return wrap(`
+    ${headerHTML('كشف إجمالي المتعثرين', 'تقرير الحسابات بالنيابة - المتعثرين', s)}
+    <div class="info">
+      <div class="info-col">
+        <div class="lbl">نوع التقرير</div><div class="val">ملخص المتعثرين بالنيابة</div>
+      </div>
+      <div class="info-col" style="text-align:left">
+        <div class="lbl">تاريخ التقرير</div><div class="val" style="direction:ltr; text-align:left;">${today()}</div>
+        <div class="lbl">عدد الحسابات</div><div class="val">${managers.length}</div>
+      </div>
+    </div>
+    <div class="divider" style="margin-bottom:10px"></div>
+    <table>
+      <thead><tr>
+        <th style="text-align:right;">اسم المدير / الحساب</th>
+        <th>رقم الجوال</th>
+        <th>العملاء المتعثرون</th>
+        <th>إجمالي العقود</th>
+        <th>المدفوع</th>
+        <th>المتبقي للتحصيل</th>
+      </tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" style="padding:16px; color:#64748b;">لا يوجد حسابات متعثرة</td></tr>'}</tbody>
+    </table>
+    ${totalsHTML(grandContracts, grandPaid, grandRemain)}
+    ${footerHTML(s)}`);
+};
+
 
 // ─── Mode 2: Contract Detail ──────────────────────────────────────────────────
 const ORDINAL_UNITS = ['', 'الأول', 'الثاني', 'الثالث', 'الرابع', 'الخامس', 'السادس', 'السابع', 'الثامن', 'التاسع', 'العاشر'];
@@ -599,7 +656,7 @@ const saveAndShare = async (doc, fileName) => {
 // ─── Main dispatcher ──────────────────────────────────────────────────────────
 export const generatePDF = async (customer, mode, specificData = {}) => {
   try {
-    if (!customer && mode !== PDF_MODES.CUSTOMERS_SUMMARY) { alert('بيانات العميل غير متوفرة'); return false; }
+    if (!customer && mode !== PDF_MODES.CUSTOMERS_SUMMARY && mode !== PDF_MODES.MANAGERS_OVERDUE_SUMMARY) { alert('بيانات العميل غير متوفرة'); return false; }
     const s    = await loadSettings();
     const date = today();
     const safe = (customer?.name || specificData.scopeName || 'العملاء').replace(/[^\w\u0600-\u06FF]/g, '_');
@@ -619,9 +676,15 @@ export const generatePDF = async (customer, mode, specificData = {}) => {
       fileName = `كشف_شامل_${safe}_${date}.pdf`;
 
     } else if (mode === PDF_MODES.CUSTOMERS_SUMMARY) {
-      const { customers = [], summaries = {}, scopeName = null } = specificData;
-      html = buildCustomersSummaryHTML(customers, summaries, s, scopeName);
-      fileName = `كشف_العملاء_${safe}_${date}.pdf`;
+      const { customers = [], summaries = {}, scopeName = null, reportTitle = null } = specificData;
+      html = buildCustomersSummaryHTML(customers, summaries, s, scopeName, reportTitle);
+      const titlePrefix = reportTitle ? reportTitle.replace(/[^\w\u0600-\u06FF]/g, '_') : 'كشف_العملاء';
+      fileName = `${titlePrefix}_${safe}_${date}.pdf`;
+
+    } else if (mode === PDF_MODES.MANAGERS_OVERDUE_SUMMARY) {
+      const { managers = [] } = specificData;
+      html = buildManagersOverdueHTML(managers, s);
+      fileName = `كشف_إجمالي_المتعثرين_${date}.pdf`;
 
     } else if (mode === PDF_MODES.CONTRACT_STATEMENT) {
       const { contract, installments } = specificData;

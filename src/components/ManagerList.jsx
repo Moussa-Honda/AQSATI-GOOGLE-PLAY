@@ -3,15 +3,32 @@ import { managerService } from '../services/database';
 import ManagerModal from './ManagerModal';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import { formatPrivateAmount, usePrivacyMode } from '../hooks/usePrivacyMode';
+import { generatePDF, PDF_MODES } from '../utils/pdfGenerator';
 
 const ManagerList = ({ onSelectManager, onBack, filterType = 'all', isReadOnly = false, onRenewalRequest }) => {
   const [managers, setManagers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showDeleted, setShowDeleted] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const privacyMode = usePrivacyMode();
 
   const isDeletedView = filterType !== 'overdue' && showDeleted;
+
+  const handleExportOverduePDF = async () => {
+    if (pdfLoading || managers.length === 0) return;
+    setPdfLoading(true);
+    try {
+      await generatePDF(null, PDF_MODES.MANAGERS_OVERDUE_SUMMARY, {
+        managers
+      });
+    } catch (e) {
+      console.error('Error generating overdue managers PDF:', e);
+      alert('حدث خطأ أثناء تصدير كشف المتعثرين');
+    } finally {
+      setPdfLoading(false);
+    }
+  };
 
   const loadManagers = useCallback(async () => {
     setLoading(true);
@@ -83,7 +100,21 @@ const ManagerList = ({ onSelectManager, onBack, filterType = 'all', isReadOnly =
                 : 'إدارة العملاء والعقود لأطراف أخرى'}
           </p>
         </div>
-        {!isDeletedView && (
+        {filterType === 'overdue' ? (
+          <button
+            onClick={handleExportOverduePDF}
+            disabled={pdfLoading || managers.length === 0}
+            className="px-3.5 py-2.5 bg-rose-500/20 border border-rose-500/40 text-rose-300 hover:bg-rose-500/30 rounded-xl font-bold flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 shadow-lg shadow-rose-950/30 cursor-pointer"
+            title="طباعة كشف إجمالي المتعثرين PDF"
+          >
+            {pdfLoading ? (
+              <span className="w-4 h-4 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <span className="text-sm font-black">PDF</span>
+            )}
+            <span className="text-xs font-bold">طباعة الكشف</span>
+          </button>
+        ) : !isDeletedView ? (
           <button
             onClick={() => {
               if (isReadOnly) return onRenewalRequest?.();
@@ -95,7 +126,7 @@ const ManagerList = ({ onSelectManager, onBack, filterType = 'all', isReadOnly =
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
           </button>
-        )}
+        ) : null}
       </div>
 
       {filterType !== 'overdue' && (
